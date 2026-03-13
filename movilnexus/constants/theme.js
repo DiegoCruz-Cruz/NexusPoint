@@ -3,7 +3,7 @@ export const Colors = {
   bgCard:    '#252D45',
   cyan:      '#00BCD4',
   cyanDark:  '#0097A7',
-  white:     '#FFFFFF',
+  white:     '#ffffff',
   text:      '#FFFFFF',
   textSub:   '#A8B4C8',
   textMuted: '#6B7A99',
