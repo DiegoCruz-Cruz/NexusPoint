@@ -2,7 +2,7 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Modal } from 'rea
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { Colors, Radius, Shadows } from '../constants/theme';
-import { currentUser, carreras, roles } from '../data/mockData';
+
 
 export default function PerfilScreen({ onNavegar }) {
   const [modalVisible, setModalVisible] = useState(false);

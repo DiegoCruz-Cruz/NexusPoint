@@ -6,7 +6,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Radius, Shadows } from '../constants/theme';
-import { spaces } from '../data/mockData';
+
 
 // ── DATOS ────────────────────────────────────────────
 const categorias = [
