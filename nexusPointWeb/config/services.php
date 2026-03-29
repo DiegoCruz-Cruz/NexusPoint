@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'nexuspoint' => [
+    'url' => env('NEXUSPOINT_API_URL'),
+    'token' => env('NEXUSPOINT_API_TOKEN'), // Por si necesitas un token de acceso después
+],
+
 ];
