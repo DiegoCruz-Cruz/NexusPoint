@@ -26,6 +26,9 @@ Route::prefix('admin')->name('admin.')->middleware(['check.api.token'])->group(f
     Route::post('/espacios',                [AdminController::class, 'espaciosStore'])->name('espacios.store');
     Route::put('/espacios/{id}',            [AdminController::class, 'espaciosUpdate'])->name('espacios.update');
     Route::delete('/espacios/{id}',         [AdminController::class, 'espaciosDestroy'])->name('espacios.destroy');
+    Route::post('/espacios/{id}/equipamiento', [AdminController::class, 'equipamientoStore'])->name('espacios.equipamiento.store');
+    Route::delete('/espacios/{id}/equipamiento/{idEquip}', [AdminController::class, 'equipamientoDestroy'])->name('espacios.equipamiento.destroy');
+    Route::get('/ping-api', [AdminController::class, 'pingApi'])->name('ping-api');
 
     // Usuarios
     Route::get('/usuarios',                 [AdminController::class, 'usuarios'])->name('usuarios');

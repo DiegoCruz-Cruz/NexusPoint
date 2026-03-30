@@ -51,7 +51,8 @@
     $inicial  = strtoupper(substr($userData['nombre'] ?? 'A', 0, 1));
     $correo   = $userData['correo'] ?? '—';
     $matricula = $userData['matricula'] ?? '—';
-    $rol      = ($userData['id_rol'] ?? 0) == 1 ? 'Administrador' : (($userData['id_rol'] ?? 0) == 2 ? 'Docente' : 'Personal');
+    $rolMap   = [1 => 'Alumno', 2 => 'Docente', 3 => 'Encargado', 4 => 'Administrador'];
+    $rol      = $rolMap[$userData['id_rol'] ?? 0] ?? 'Sin rol';
 @endphp
 
 <header class="section-header">
@@ -95,20 +96,48 @@
     </section>
 </div>
 
-{{-- Modal cambio contraseña --}}
+{{-- Modal cambio contraseña (multi-estado) --}}
 <div id="confirmPassModal" class="modal-overlay" style="display:none;">
     <div class="modal-content">
-        <div style="font-size:3rem; margin-bottom:10px;">🔑</div>
-        <h3>¿Cambiar contraseña?</h3>
-        <p>Por seguridad, se registrará este cambio en el historial de acceso.</p>
-        <div class="modal-actions" style="display:flex; gap:10px; justify-content:center; margin-top:20px;">
-            <button onclick="document.getElementById('confirmPassModal').style.display='none'"
-                style="background:#eee; color:#333; border:none; padding:10px 25px; border-radius:50px; cursor:pointer; font-weight:700;">
-                Cancelar
+        {{-- Confirmar --}}
+        <div id="passStateConfirm">
+            <div style="font-size:3rem; margin-bottom:10px;">🔑</div>
+            <h3>¿Cambiar contraseña?</h3>
+            <p style="color:#666;">Se actualizará tu contraseña de acceso al sistema.</p>
+            <div style="display:flex; gap:10px; justify-content:center; margin-top:20px;">
+                <button onclick="document.getElementById('confirmPassModal').style.display='none'"
+                    style="background:#eee; color:#333; border:none; padding:10px 25px; border-radius:50px; cursor:pointer; font-weight:700;">
+                    Cancelar
+                </button>
+                <button onclick="savePass()"
+                    style="background:var(--color-secundario); color:white; border:2px solid var(--color-primario); padding:10px 25px; border-radius:50px; cursor:pointer; font-weight:700;">
+                    Sí, confirmar
+                </button>
+            </div>
+        </div>
+        {{-- Cargando --}}
+        <div id="passStateLoading" style="display:none;">
+            <div style="font-size:2rem; margin-bottom:10px;">⏳</div>
+            <p style="color:#666;">Actualizando contraseña...</p>
+        </div>
+        {{-- Éxito --}}
+        <div id="passStateSuccess" style="display:none;">
+            <div style="width:65px; height:65px; background:#d4edda; color:#28a745; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:2rem; margin:0 auto 15px;">✓</div>
+            <h3 style="color:var(--color-secundario);">¡Contraseña actualizada!</h3>
+            <p style="color:#666; margin-top:8px;">Tu nueva contraseña ya está activa.</p>
+            <button onclick="document.getElementById('confirmPassModal').style.display='none'; setPassModalState('confirm')"
+                style="background:var(--color-secundario); color:white; border:2px solid var(--color-primario); padding:10px 28px; border-radius:50px; cursor:pointer; font-weight:700; margin-top:20px;">
+                Cerrar
             </button>
-            <button onclick="savePass()"
-                style="background:var(--color-secundario); color:white; border:2px solid var(--color-primario); padding:10px 25px; border-radius:50px; cursor:pointer; font-weight:700;">
-                Sí, confirmar
+        </div>
+        {{-- Error --}}
+        <div id="passStateError" style="display:none;">
+            <div style="font-size:2.5rem; margin-bottom:10px;">🚫</div>
+            <h3 style="color:#c0392b;">No se pudo actualizar</h3>
+            <p id="passErrorMsg" style="color:#666; margin-top:8px; line-height:1.5;"></p>
+            <button onclick="setPassModalState('confirm')"
+                style="background:var(--color-secundario); color:white; border:2px solid var(--color-primario); padding:10px 28px; border-radius:50px; cursor:pointer; font-weight:700; margin-top:20px;">
+                Intentar de nuevo
             </button>
         </div>
     </div>
@@ -120,9 +149,12 @@
     function savePass() {
         const password = document.getElementById('newPassword').value;
         if (!password || password.length < 8) {
-            alert('La contraseña debe tener al menos 8 caracteres.');
+            setPassModalState('error', 'La contraseña debe tener al menos 8 caracteres.');
             return;
         }
+
+        setPassModalState('loading');
+
         fetch('{{ route('admin.perfil.update') }}', {
             method: 'PUT',
             headers: {
@@ -131,11 +163,24 @@
             },
             body: JSON.stringify({ contrasenia: password })
         })
-        .then(r => r.json())
-        .then(data => {
-            document.getElementById('confirmPassModal').style.display = 'none';
-            alert(data.success ? '¡Contraseña actualizada con éxito!' : 'Error: ' + (data.message || 'No se pudo actualizar'));
-        });
+        .then(r => r.json().then(data => ({ ok: r.ok, data })))
+        .then(({ ok, data }) => {
+            if (ok && data.success) {
+                setPassModalState('success');
+                document.getElementById('newPassword').value = '';
+            } else {
+                setPassModalState('error', data.message || 'No se pudo actualizar la contraseña.');
+            }
+        })
+        .catch(() => setPassModalState('error', 'Error de conexión con el servidor.'));
+    }
+
+    function setPassModalState(state, msg = '') {
+        document.getElementById('passStateConfirm').style.display = state === 'confirm' ? 'block' : 'none';
+        document.getElementById('passStateLoading').style.display = state === 'loading' ? 'block' : 'none';
+        document.getElementById('passStateSuccess').style.display = state === 'success' ? 'block' : 'none';
+        document.getElementById('passStateError').style.display   = state === 'error'   ? 'block' : 'none';
+        if (state === 'error') document.getElementById('passErrorMsg').innerText = msg;
     }
 </script>
 @endsection
