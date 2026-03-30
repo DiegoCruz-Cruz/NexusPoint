@@ -3,13 +3,13 @@
 @section('titulo', 'Espacios')
 
 @section('contenido')
-<header class="section-header">
+<header class="section-header" style="display:flex; justify-content:space-between; align-items:center;">
     <div>
         <h1>Gestión de <span class="text-primario">Espacios</span></h1>
         <p>Administra los espacios disponibles en la institución.</p>
     </div>
     <a href="{{ route('admin.espacios.create') }}"
-       style="display:inline-flex; align-items:center; background:var(--color-secundario); color:white; padding:12px 28px; border-radius:50px; text-decoration:none; font-weight:700; border:2px solid var(--color-primario);">
+    style="display:inline-flex; align-items:center; background:var(--color-secundario); color:white; padding:12px 28px; border-radius:50px; text-decoration:none; font-weight:700; border:2px solid var(--color-primario);">
         + Nuevo Espacio
     </a>
 </header>
@@ -50,8 +50,7 @@
                 </td>
                 <td>
                     <div class="actions-wrapper" style="display:flex; gap:10px; justify-content:center;">
-                        <a href="{{ route('admin.espacios.edit', $e['id_espacio'] ?? $e['id']) }}"
-                           class="btn-action btn-edit" title="Editar">✎</a>
+                        <a href="{{ route('admin.espacios.edit', $e['id_espacio']) }}" class="btn-action btn-edit" title="Editar">✎</a>
                         <button class="btn-action btn-delete" title="Eliminar"
                             onclick="openDeleteModal({{ $e['id_espacio'] ?? $e['id'] }}, '{{ $e['nombre'] ?? '' }}')">🗑</button>
                     </div>
