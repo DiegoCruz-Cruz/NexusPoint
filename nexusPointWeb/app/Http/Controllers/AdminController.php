@@ -18,127 +18,183 @@ class AdminController extends Controller
         return Session::get('api_token', '');
     }
 
-    // ─── DASHBOARD ────────────────────────────────────────────────────────────
+    // ─── DASHBOARD ─────────────────────────────────────────────
     public function dashboard()
     {
-        $token = $this->token();
-        $headers = ['Authorization' => "Bearer {$token}"];
+        $headers = ['Authorization' => "Bearer {$this->token()}"];
 
-        // Llamadas paralelas a la API
-        $solicitudesRes = Http::withHeaders($headers)->get($this->apiUrl() . '/solicitudes');
-        $espaciosRes    = Http::withHeaders($headers)->get($this->apiUrl() . '/espacios');
+        // ─── 1. Datos base
+        $reservaciones = Http::withHeaders($headers)->get($this->apiUrl() . '/reservaciones/')->json() ?? [];
+        $espacios      = Http::withHeaders($headers)->get($this->apiUrl() . '/espacios/')->json() ?? [];
 
-        $solicitudes = $solicitudesRes->successful() ? $solicitudesRes->json() : [];
-        $espacios    = $espaciosRes->successful()    ? $espaciosRes->json()    : [];
+        // ─── 2. Edificios desde el catálogo correcto
+        $edificios = Http::withHeaders($headers)
+                        ->get($this->apiUrl() . '/espacios/catalogos/edificios')
+                        ->json() ?? [];
 
-        // Calcular estadísticas
-        $totalSolicitudes = count($solicitudes);
-        $espaciosActivos  = count(array_filter($espacios, fn($e) => ($e['estatus'] ?? '') === 'Disponible'));
+        // ─── 3. Construir mapas relacionales
+        //        id_piso => id_edificio  /  id_edificio => nombre_edificio
+        $mapPisos     = [];
+        $mapEdificios = [];
 
-        $aprobadas = count(array_filter($solicitudes, fn($s) => ($s['estatus'] ?? '') === 'Aprobado'));
-        $tasaAprobacion = $totalSolicitudes > 0 ? round(($aprobadas / $totalSolicitudes) * 100) : 0;
+        foreach ($edificios as $edificio) {
+            $idEdificio     = $edificio['id_edificio'];
+            $nombreEdificio = $edificio['nombre_edificio'];
 
-        // Solicitudes por día de la semana
-        $dias = ['Lun' => 0, 'Mar' => 0, 'Mié' => 0, 'Jue' => 0, 'Vie' => 0, 'Sáb' => 0, 'Dom' => 0];
-        $mapaDias = ['Monday' => 'Lun', 'Tuesday' => 'Mar', 'Wednesday' => 'Mié',
-                     'Thursday' => 'Jue', 'Friday' => 'Vie', 'Saturday' => 'Sáb', 'Sunday' => 'Dom'];
-        foreach ($solicitudes as $s) {
-            if (!empty($s['fecha_solicitud'])) {
-                $diaNombre = date('l', strtotime($s['fecha_solicitud']));
-                $diaCorto  = $mapaDias[$diaNombre] ?? null;
-                if ($diaCorto) $dias[$diaCorto]++;
+            $mapEdificios[$idEdificio] = $nombreEdificio;
+
+            // Pedir los pisos de cada edificio
+            $pisos = Http::withHeaders($headers)
+                         ->get($this->apiUrl() . "/espacios/catalogos/pisos/{$idEdificio}")
+                         ->json() ?? [];
+
+            foreach ($pisos as $piso) {
+                $mapPisos[$piso['id_piso']] = $idEdificio;
             }
         }
 
-        // Ocupación por edificio (basada en espacios)
-        $edificios = [];
-        foreach ($espacios as $e) {
-            $edif = $e['edificio'] ?? 'Sin edificio';
-            $edificios[$edif] = ($edificios[$edif] ?? 0) + 1;
+        // ─── 4. Mapa: id_espacio => id_piso
+        $mapEspacioPiso = [];
+        foreach ($espacios as $espacio) {
+            $idEspacio = $espacio['id_espacio'] ?? null;
+            $idPiso    = $espacio['id_piso']    ?? null;
+
+            // Si la API devuelve el piso como objeto anidado
+            if (is_array($idPiso)) {
+                $idPiso = $idPiso['id_piso'] ?? null;
+            }
+
+            if ($idEspacio && $idPiso) {
+                $mapEspacioPiso[$idEspacio] = $idPiso;
+            }
+        }
+
+        // ─── 5. Stats
+        $totalReservaciones = count($reservaciones);
+
+        $espaciosActivos = count(array_filter($espacios, function ($e) {
+            return ($e['id_estado'] ?? $e['id_estado_espacio'] ?? 0) == 1;
+        }));
+
+        $aprobadas = count(array_filter($reservaciones, function ($r) {
+            return ($r['id_estado_reservacion'] ?? 0) == 2;
+        }));
+
+        $tasaAprobacion = $totalReservaciones > 0
+            ? round(($aprobadas / $totalReservaciones) * 100)
+            : 0;
+
+        // ─── 6. Reservaciones por día de la semana (usa fecha_solicitud)
+        $dias = ['Lun' => 0, 'Mar' => 0, 'Mié' => 0, 'Jue' => 0, 'Vie' => 0, 'Sáb' => 0, 'Dom' => 0];
+
+        $mapaDias = [
+            'Monday'    => 'Lun',
+            'Tuesday'   => 'Mar',
+            'Wednesday' => 'Mié',
+            'Thursday'  => 'Jue',
+            'Friday'    => 'Vie',
+            'Saturday'  => 'Sáb',
+            'Sunday'    => 'Dom',
+        ];
+
+        foreach ($reservaciones as $r) {
+            $fecha = $r['fecha_solicitud'] ?? null;
+            if ($fecha) {
+                $dia   = date('l', strtotime($fecha));
+                $corto = $mapaDias[$dia] ?? null;
+                if ($corto) {
+                    $dias[$corto]++;
+                }
+            }
+        }
+
+        // ─── 7. Gráfica de pie: reservaciones por edificio
+        $graficaEdificios = [];
+
+        if ($totalReservaciones > 0) {
+            foreach ($reservaciones as $r) {
+                $idEspacio      = $r['id_espacio'] ?? null;
+                $idPiso         = $mapEspacioPiso[$idEspacio] ?? null;
+                $idEdificio     = $mapPisos[$idPiso] ?? null;
+                $nombreEdificio = $mapEdificios[$idEdificio] ?? null;
+
+                if ($nombreEdificio) {
+                    $graficaEdificios[$nombreEdificio] = ($graficaEdificios[$nombreEdificio] ?? 0) + 1;
+                }
+            }
+        } else {
+            foreach ($espacios as $e) {
+                $idPiso = $e['id_piso'] ?? null;
+                if (is_array($idPiso)) {
+                    $idPiso = $idPiso['id_piso'] ?? null;
+                }
+                $idEdificio     = $mapPisos[$idPiso] ?? null;
+                $nombreEdificio = $mapEdificios[$idEdificio] ?? null;
+
+                if ($nombreEdificio) {
+                    $graficaEdificios[$nombreEdificio] = ($graficaEdificios[$nombreEdificio] ?? 0) + 1;
+                }
+            }
         }
 
         return view('admin.dashboard', [
             'userData'           => Session::get('user_data', []),
-            'totalSolicitudes'   => $totalSolicitudes,
+            'totalSolicitudes'   => $totalReservaciones,
             'espaciosActivos'    => $espaciosActivos,
             'tasaAprobacion'     => $tasaAprobacion,
             'diasSemana'         => $dias,
-            'ocupacionEdificios' => $edificios,
+            'ocupacionEdificios' => $graficaEdificios,
         ]);
     }
 
-    // ─── SOLICITUDES ──────────────────────────────────────────────────────────
+    // ─── SOLICITUDES / RESERVACIONES ──────────────────────────
     public function solicitudes()
     {
         $res = Http::withHeaders(['Authorization' => "Bearer {$this->token()}"])
-                   ->get($this->apiUrl() . '/solicitudes');
+                   ->get($this->apiUrl() . '/reservaciones/');
 
         $solicitudes = $res->successful() ? $res->json() : [];
 
         return view('admin.solicitudes', [
-            'userData'     => Session::get('user_data', []),
-            'solicitudes'  => $solicitudes,
+            'userData'    => Session::get('user_data', []),
+            'solicitudes' => $solicitudes,
         ]);
     }
 
-    // Aprobar/Rechazar solicitud (llamado vía fetch desde la vista)
     public function actualizarSolicitud(Request $request, $id)
     {
+        // Usa el endpoint POST /reservaciones/gestionar
         $res = Http::withHeaders(['Authorization' => "Bearer {$this->token()}"])
-                   ->patch($this->apiUrl() . "/solicitudes/{$id}", [
-                       'estatus' => $request->input('estatus'),
+                   ->post($this->apiUrl() . '/reservaciones/gestionar', [
+                       'id_reservacion'        => (int) $id,
+                       'id_estado_reservacion' => $request->input('id_estado_reservacion'),
+                       'observaciones'         => $request->input('observaciones', ''),
                    ]);
 
-        if ($res->successful()) {
-            return response()->json(['success' => true]);
-        }
-        return response()->json(['success' => false, 'message' => $res->json()['detail'] ?? 'Error'], 422);
+        return response()->json([
+            'success' => $res->successful(),
+            'message' => $res->json()['detail'] ?? null,
+        ], $res->successful() ? 200 : 422);
     }
 
-    // ─── ESPACIOS ─────────────────────────────────────────────────────────────
+    // ─── ESPACIOS ─────────────────────────────────────────────
     public function espacios()
     {
         $res = Http::withHeaders(['Authorization' => "Bearer {$this->token()}"])
-                   ->get($this->apiUrl() . '/espacios');
-
-        $espacios = $res->successful() ? $res->json() : [];
+                   ->get($this->apiUrl() . '/espacios/');
 
         return view('admin.espacios', [
             'userData' => Session::get('user_data', []),
-            'espacios' => $espacios,
-        ]);
-    }
-
-    public function espaciosCreate()
-    {
-        return view('admin.espacios-form', [
-            'userData' => Session::get('user_data', []),
-            'espacio'  => null,
-        ]);
-    }
-
-    public function espaciosEdit($id)
-    {
-        $res = Http::withHeaders(['Authorization' => "Bearer {$this->token()}"])
-                   ->get($this->apiUrl() . "/espacios/{$id}");
-
-        $espacio = $res->successful() ? $res->json() : null;
-
-        return view('admin.espacios-form', [
-            'userData' => Session::get('user_data', []),
-            'espacio'  => $espacio,
+            'espacios' => $res->successful() ? $res->json() : [],
         ]);
     }
 
     public function espaciosStore(Request $request)
     {
         $res = Http::withHeaders(['Authorization' => "Bearer {$this->token()}"])
-                   ->post($this->apiUrl() . '/espacios', $request->all());
+                   ->post($this->apiUrl() . '/espacios/', $request->all());
 
-        if ($res->successful()) {
-            return response()->json(['success' => true]);
-        }
-        return response()->json(['success' => false, 'message' => $res->json()['detail'] ?? 'Error'], 422);
+        return response()->json(['success' => $res->successful()]);
     }
 
     public function espaciosUpdate(Request $request, $id)
@@ -146,10 +202,7 @@ class AdminController extends Controller
         $res = Http::withHeaders(['Authorization' => "Bearer {$this->token()}"])
                    ->put($this->apiUrl() . "/espacios/{$id}", $request->all());
 
-        if ($res->successful()) {
-            return response()->json(['success' => true]);
-        }
-        return response()->json(['success' => false, 'message' => $res->json()['detail'] ?? 'Error'], 422);
+        return response()->json(['success' => $res->successful()]);
     }
 
     public function espaciosDestroy($id)
@@ -157,19 +210,23 @@ class AdminController extends Controller
         $res = Http::withHeaders(['Authorization' => "Bearer {$this->token()}"])
                    ->delete($this->apiUrl() . "/espacios/{$id}");
 
-        if ($res->successful()) {
-            return response()->json(['success' => true]);
-        }
-        return response()->json(['success' => false], 422);
+        return response()->json(['success' => $res->successful()]);
     }
 
-    // ─── USUARIOS ─────────────────────────────────────────────────────────────
+    // ─── USUARIOS ─────────────────────────────────────────────
     public function usuarios()
     {
-        $res = Http::withHeaders(['Authorization' => "Bearer {$this->token()}"])
-                   ->get($this->apiUrl() . '/usuarios');
+        $headers = ['Authorization' => "Bearer {$this->token()}"];
 
-        $usuarios = $res->successful() ? $res->json() : [];
+        $usuarios = Http::withHeaders($headers)->get($this->apiUrl() . '/usuarios')->json() ?? [];
+
+        $carreras = collect(Http::get($this->apiUrl() . '/usuarios/catalogos/carreras')->json())
+                    ->pluck('nombre_carrera', 'id_carrera');
+
+        $usuarios = collect($usuarios)->map(function ($u) use ($carreras) {
+            $u['nombre_carrera'] = $carreras[$u['id_carrera']] ?? 'Sin carrera';
+            return $u;
+        });
 
         return view('admin.usuarios', [
             'userData' => Session::get('user_data', []),
@@ -177,111 +234,21 @@ class AdminController extends Controller
         ]);
     }
 
-    public function usuariosCreate()
-    {
-        return view('admin.usuarios-form', [
-            'userData' => Session::get('user_data', []),
-            'usuario'  => null,
-        ]);
-    }
-
-    public function usuariosEdit($id)
-    {
-        $res = Http::withHeaders(['Authorization' => "Bearer {$this->token()}"])
-                   ->get($this->apiUrl() . "/usuarios/{$id}");
-
-        $usuario = $res->successful() ? $res->json() : null;
-
-        return view('admin.usuarios-form', [
-            'userData' => Session::get('user_data', []),
-            'usuario'  => $usuario,
-        ]);
-    }
-
     public function usuariosStore(Request $request)
     {
-        $res = Http::withHeaders(['Authorization' => "Bearer {$this->token()}"])
-                   ->post($this->apiUrl() . '/auth/registro', $request->all());
+        $res = Http::post($this->apiUrl() . '/auth/registro', $request->all());
 
-        if ($res->successful()) {
-            return response()->json(['success' => true]);
-        }
-        return response()->json(['success' => false, 'message' => $res->json()['detail'] ?? 'Error'], 422);
+        return response()->json([
+            'success' => $res->successful(),
+            'message' => $res->json()['detail'] ?? null,
+        ], $res->successful() ? 200 : 422);
     }
 
-    public function usuariosUpdate(Request $request, $id)
-    {
-        $res = Http::withHeaders(['Authorization' => "Bearer {$this->token()}"])
-                   ->put($this->apiUrl() . "/usuarios/{$id}", $request->all());
-
-        if ($res->successful()) {
-            return response()->json(['success' => true]);
-        }
-        return response()->json(['success' => false, 'message' => $res->json()['detail'] ?? 'Error'], 422);
-    }
-
-    public function usuariosDestroy($id)
-    {
-        $res = Http::withHeaders(['Authorization' => "Bearer {$this->token()}"])
-                   ->delete($this->apiUrl() . "/usuarios/{$id}");
-
-        if ($res->successful()) {
-            return response()->json(['success' => true]);
-        }
-        return response()->json(['success' => false], 422);
-    }
-
-    // ─── REPORTES ─────────────────────────────────────────────────────────────
-    public function reportes()
-    {
-        return view('admin.reportes', [
-            'userData' => Session::get('user_data', []),
-        ]);
-    }
-
-    // ─── PERFIL ───────────────────────────────────────────────────────────────
+    // ─── PERFIL ─────────────────────────────────────────────
     public function perfil()
     {
-        $userData = Session::get('user_data', []);
-        $id = $userData['id_usuario'] ?? null;
-
-        if ($id) {
-            $res = Http::withHeaders(['Authorization' => "Bearer {$this->token()}"])
-                       ->get($this->apiUrl() . "/usuarios/{$id}");
-            if ($res->successful()) {
-                $userData = $res->json();
-                Session::put('user_data', $userData);
-            }
-        }
-
         return view('admin.perfil', [
-            'userData' => $userData,
-        ]);
-    }
-
-    public function perfilEdit()
-    {
-        return view('admin.perfil-form', [
             'userData' => Session::get('user_data', []),
         ]);
-    }
-
-    public function perfilUpdate(Request $request)
-    {
-        $userData = Session::get('user_data', []);
-        $id = $userData['id_usuario'] ?? null;
-
-        if (!$id) {
-            return response()->json(['success' => false, 'message' => 'Usuario no identificado'], 400);
-        }
-
-        $res = Http::withHeaders(['Authorization' => "Bearer {$this->token()}"])
-                   ->put($this->apiUrl() . "/usuarios/{$id}", $request->all());
-
-        if ($res->successful()) {
-            Session::put('user_data', $res->json());
-            return response()->json(['success' => true]);
-        }
-        return response()->json(['success' => false, 'message' => $res->json()['detail'] ?? 'Error'], 422);
     }
 }
