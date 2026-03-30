@@ -1,7 +1,7 @@
 import { View, Text, Image, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Radius, Shadows } from '../constants/theme';
-import { currentUser, proximaReserva } from '../data/mockData';
+
 import { LinearGradient } from 'expo-linear-gradient';
 
 

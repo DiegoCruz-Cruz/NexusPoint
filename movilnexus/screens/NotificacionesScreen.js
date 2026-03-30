@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Radius, Shadows } from '../constants/theme';
-import { notificaciones } from '../data/mockData';
+
 
 // ── CONFIGURACIÓN VISUAL POR TIPO ─────────────────────
 const tipoConfig = {

@@ -1,0 +1,141 @@
+@extends('layouts.app')
+
+@section('titulo', 'Mi Perfil')
+
+@section('head')
+<style>
+    .profile-header-card {
+        background: linear-gradient(135deg, var(--color-secundario) 0%, #344484 100%);
+        border-radius: 15px; padding: 40px; color: white;
+        display: flex; align-items: center; gap: 30px;
+        margin-bottom: 30px;
+        box-shadow: 0 10px 25px rgba(40, 53, 102, 0.2);
+        position: relative; overflow: hidden;
+    }
+    .profile-header-card::after {
+        content: ""; position: absolute; top: -50px; right: -50px;
+        width: 150px; height: 150px;
+        background: rgba(62, 181, 188, 0.1); border-radius: 50%;
+    }
+    .profile-avatar-big {
+        width: 110px; height: 110px;
+        background-color: var(--color-primario); color: var(--color-secundario);
+        border-radius: 50%; display: flex; align-items: center; justify-content: center;
+        font-size: 2.8rem; font-weight: 800;
+        border: 5px solid rgba(255,255,255,0.15);
+        box-shadow: 0 5px 15px rgba(0,0,0,0.2); z-index: 1;
+    }
+    .profile-grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 25px; }
+    .info-card { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); }
+    .info-card h3 { margin-bottom: 25px; color: var(--color-secundario); border-bottom: 2px solid #f0f4f8; padding-bottom: 12px; font-size: 1.2rem; }
+    .detail-group { margin-bottom: 20px; }
+    .detail-group label { display: block; font-size: 0.75rem; text-transform: uppercase; color: #999; font-weight: 700; letter-spacing: 0.5px; margin-bottom: 5px; }
+    .detail-group p { font-size: 1.05rem; color: var(--color-secundario); font-weight: 600; }
+    .btn-nexus {
+        display: inline-flex; align-items: center; justify-content: center;
+        background-color: var(--color-secundario); color: white !important;
+        padding: 12px 30px; border-radius: 50px; text-decoration: none;
+        font-weight: 700; border: 2px solid var(--color-primario);
+        transition: all 0.3s ease; cursor: pointer; font-size: 0.9rem;
+    }
+    .btn-nexus:hover {
+        background-color: var(--color-primario); color: var(--color-secundario) !important;
+        box-shadow: 0 5px 15px rgba(62, 181, 188, 0.4); transform: translateY(-2px);
+    }
+</style>
+@endsection
+
+@section('contenido')
+@php
+    $nombre   = ($userData['nombre'] ?? '') . ' ' . ($userData['apellido_p'] ?? '') . ' ' . ($userData['apellido_m'] ?? '');
+    $inicial  = strtoupper(substr($userData['nombre'] ?? 'A', 0, 1));
+    $correo   = $userData['correo'] ?? '—';
+    $matricula = $userData['matricula'] ?? '—';
+    $rol      = ($userData['id_rol'] ?? 0) == 1 ? 'Administrador' : (($userData['id_rol'] ?? 0) == 2 ? 'Docente' : 'Personal');
+@endphp
+
+<header class="section-header">
+    <div>
+        <h1>Mi <span class="text-primario">Perfil</span></h1>
+        <p>Gestiona tu presencia en la plataforma NexusPoint.</p>
+    </div>
+</header>
+
+<section class="profile-header-card">
+    <div class="profile-avatar-big">{{ $inicial }}</div>
+    <div>
+        <h2 style="font-size:2rem; font-weight:800; margin-bottom:5px;">{{ trim($nombre) }}</h2>
+        <p style="opacity:0.9; font-size:1.1rem; font-weight:300;">{{ $correo }}</p>
+    </div>
+</section>
+
+<div class="profile-grid">
+    <section class="info-card">
+        <h3>Información Personal</h3>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+            <div class="detail-group"><label>Nombre</label><p>{{ trim($nombre) }}</p></div>
+            <div class="detail-group"><label>Matrícula</label><p>{{ $matricula }}</p></div>
+            <div class="detail-group"><label>Correo</label><p>{{ $correo }}</p></div>
+            <div class="detail-group"><label>Rol</label><p>{{ $rol }}</p></div>
+            <div class="detail-group"><label>Cuatrimestre</label><p>{{ $userData['cuatrimestre'] ?? '—' }}</p></div>
+        </div>
+        <a href="{{ route('admin.perfil.edit') }}" class="btn-nexus" style="margin-top:20px;">Editar mi Información</a>
+    </section>
+
+    <section class="info-card">
+        <h3>Seguridad</h3>
+        <div class="input-group" style="margin-bottom:20px;">
+            <label style="color:var(--color-secundario); font-weight:700; font-size:0.8rem; display:block; margin-bottom:8px;">NUEVA CONTRASEÑA</label>
+            <input type="password" id="newPassword" placeholder="Mínimo 8 caracteres"
+                   style="width:100%; padding:12px; border-radius:10px; border:1px solid #ddd; outline:none;">
+        </div>
+        <button class="btn-nexus" onclick="document.getElementById('confirmPassModal').style.display='flex'">
+            Actualizar Acceso
+        </button>
+    </section>
+</div>
+
+{{-- Modal cambio contraseña --}}
+<div id="confirmPassModal" class="modal-overlay" style="display:none;">
+    <div class="modal-content">
+        <div style="font-size:3rem; margin-bottom:10px;">🔑</div>
+        <h3>¿Cambiar contraseña?</h3>
+        <p>Por seguridad, se registrará este cambio en el historial de acceso.</p>
+        <div class="modal-actions" style="display:flex; gap:10px; justify-content:center; margin-top:20px;">
+            <button onclick="document.getElementById('confirmPassModal').style.display='none'"
+                style="background:#eee; color:#333; border:none; padding:10px 25px; border-radius:50px; cursor:pointer; font-weight:700;">
+                Cancelar
+            </button>
+            <button onclick="savePass()"
+                style="background:var(--color-secundario); color:white; border:2px solid var(--color-primario); padding:10px 25px; border-radius:50px; cursor:pointer; font-weight:700;">
+                Sí, confirmar
+            </button>
+        </div>
+    </div>
+</div>
+@endsection
+
+@section('scripts')
+<script>
+    function savePass() {
+        const password = document.getElementById('newPassword').value;
+        if (!password || password.length < 8) {
+            alert('La contraseña debe tener al menos 8 caracteres.');
+            return;
+        }
+        fetch('{{ route('admin.perfil.update') }}', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+            },
+            body: JSON.stringify({ contrasenia: password })
+        })
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('confirmPassModal').style.display = 'none';
+            alert(data.success ? '¡Contraseña actualizada con éxito!' : 'Error: ' + (data.message || 'No se pudo actualizar'));
+        });
+    }
+</script>
+@endsection
