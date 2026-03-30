@@ -25,16 +25,19 @@
                 <li><a href="{{ route('admin.reportes') }}"    class="{{ request()->routeIs('admin.reportes')    ? 'active' : '' }}">Reportes</a></li>
             </ul>
             <div class="sidebar-footer">
-                <a href="#" class="sidebar-user-link">
+                <a href="{{ route('admin.perfil') }}" class="sidebar-user-link">
                     <div class="user-avatar">
-                        {{ isset($userData['nombre']) ? strtoupper(substr($userData['nombre'], 0, 1)) : 'A' }}
+                        {{ strtoupper(substr($userData['nombre'] ?? 'A', 0, 1)) }}
                     </div>
                     <div class="user-info">
                         <span class="user-name">
-                            {{ ($userData['nombre'] ?? '') . ' ' . ($userData['apellido_p'] ?? '') }}
+                            {{ trim(($userData['nombre'] ?? '') . ' ' . ($userData['apellido_p'] ?? '')) }}
                         </span>
                         <span class="user-role">
-                            {{ ($userData['id_rol'] ?? 0) == 1 ? 'Administrador' : 'Usuario' }}
+                            @php
+                                $rolMap = [1 => 'Alumno', 2 => 'Docente', 3 => 'Encargado', 4 => 'Administrador'];
+                                echo $rolMap[$userData['id_rol'] ?? 0] ?? 'Usuario';
+                            @endphp
                         </span>
                     </div>
                 </a>

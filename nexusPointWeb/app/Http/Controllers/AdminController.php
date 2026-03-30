@@ -18,124 +18,66 @@ class AdminController extends Controller
         return Session::get('api_token', '');
     }
 
-        // ─── DASHBOARD ─────────────────────────────────────────────
+    private function headers(): array
+    {
+        return ['Authorization' => "Bearer {$this->token()}", 'Accept' => 'application/json'];
+    }
+
+    // ─── DASHBOARD ────────────────────────────────────────────────────────────
     public function dashboard()
     {
-        $headers = ['Authorization' => "Bearer {$this->token()}"];
+        $headers = $this->headers();
 
-        // ─── 1. Datos base
-        $reservaciones = Http::withHeaders($headers)->get($this->apiUrl() . '/reservaciones/')->json() ?? [];
-        $espacios      = Http::withHeaders($headers)->get($this->apiUrl() . '/espacios/')->json() ?? [];
+        $reservaciones = Http::withHeaders($headers)->timeout(60)->get($this->apiUrl() . '/reservaciones/')->json() ?? [];
+        $espacios      = Http::withHeaders($headers)->timeout(60)->get($this->apiUrl() . '/espacios/')->json() ?? [];
+        $edificios     = Http::withHeaders($headers)->timeout(60)->get($this->apiUrl() . '/espacios/catalogos/edificios')->json() ?? [];
 
-        // ─── 2. Edificios desde el catálogo correcto
-        $edificios = Http::withHeaders($headers)
-                        ->get($this->apiUrl() . '/espacios/catalogos/edificios')
-                        ->json() ?? [];
-
-        // ─── 3. Construir mapas relacionales
-        //        id_piso => id_edificio  /  id_edificio => nombre_edificio
         $mapPisos     = [];
         $mapEdificios = [];
 
         foreach ($edificios as $edificio) {
-            $idEdificio     = $edificio['id_edificio'];
-            $nombreEdificio = $edificio['nombre_edificio'];
+            $idEdificio               = $edificio['id_edificio'];
+            $mapEdificios[$idEdificio] = $edificio['nombre_edificio'];
 
-            $mapEdificios[$idEdificio] = $nombreEdificio;
-
-            // Pedir los pisos de cada edificio
-            $pisos = Http::withHeaders($headers)
-                         ->get($this->apiUrl() . "/espacios/catalogos/pisos/{$idEdificio}")
-                         ->json() ?? [];
-
+            $pisos = Http::withHeaders($headers)->timeout(60)->get($this->apiUrl() . "/espacios/catalogos/pisos/{$idEdificio}")->json() ?? [];
             foreach ($pisos as $piso) {
                 $mapPisos[$piso['id_piso']] = $idEdificio;
             }
         }
 
-        // ─── 4. Mapa: id_espacio => id_piso
         $mapEspacioPiso = [];
         foreach ($espacios as $espacio) {
             $idEspacio = $espacio['id_espacio'] ?? null;
-            $idPiso    = $espacio['id_piso']    ?? null;
-
-            // Si la API devuelve el piso como objeto anidado
-            if (is_array($idPiso)) {
-                $idPiso = $idPiso['id_piso'] ?? null;
-            }
-
-            if ($idEspacio && $idPiso) {
-                $mapEspacioPiso[$idEspacio] = $idPiso;
-            }
+            $idPiso    = $espacio['id_piso'] ?? null;
+            if (is_array($idPiso)) $idPiso = $idPiso['id_piso'] ?? null;
+            if ($idEspacio && $idPiso) $mapEspacioPiso[$idEspacio] = $idPiso;
         }
 
-        // ─── 5. Stats
         $totalReservaciones = count($reservaciones);
+        $espaciosActivos    = count(array_filter($espacios, fn($e) => ($e['id_estado'] ?? $e['id_estado_espacio'] ?? 0) == 1));
+        $aprobadas          = count(array_filter($reservaciones, fn($r) => ($r['id_estado_reservacion'] ?? 0) == 2));
+        $tasaAprobacion     = $totalReservaciones > 0 ? round(($aprobadas / $totalReservaciones) * 100) : 0;
 
-        $espaciosActivos = count(array_filter($espacios, function ($e) {
-            return ($e['id_estado'] ?? $e['id_estado_espacio'] ?? 0) == 1;
-        }));
-
-        $aprobadas = count(array_filter($reservaciones, function ($r) {
-            return ($r['id_estado_reservacion'] ?? 0) == 2;
-        }));
-
-        $tasaAprobacion = $totalReservaciones > 0
-            ? round(($aprobadas / $totalReservaciones) * 100)
-            : 0;
-
-        // ─── 6. Reservaciones por día de la semana (usa fecha_solicitud)
-        $dias = ['Lun' => 0, 'Mar' => 0, 'Mié' => 0, 'Jue' => 0, 'Vie' => 0, 'Sáb' => 0, 'Dom' => 0];
-
-        $mapaDias = [
-            'Monday'    => 'Lun',
-            'Tuesday'   => 'Mar',
-            'Wednesday' => 'Mié',
-            'Thursday'  => 'Jue',
-            'Friday'    => 'Vie',
-            'Saturday'  => 'Sáb',
-            'Sunday'    => 'Dom',
-        ];
+        $dias     = ['Lun' => 0, 'Mar' => 0, 'Mié' => 0, 'Jue' => 0, 'Vie' => 0, 'Sáb' => 0, 'Dom' => 0];
+        $mapaDias = ['Monday' => 'Lun', 'Tuesday' => 'Mar', 'Wednesday' => 'Mié', 'Thursday' => 'Jue', 'Friday' => 'Vie', 'Saturday' => 'Sáb', 'Sunday' => 'Dom'];
 
         foreach ($reservaciones as $r) {
             $fecha = $r['fecha_solicitud'] ?? null;
             if ($fecha) {
-                $dia   = date('l', strtotime($fecha));
-                $corto = $mapaDias[$dia] ?? null;
-                if ($corto) {
-                    $dias[$corto]++;
-                }
+                $corto = $mapaDias[date('l', strtotime($fecha))] ?? null;
+                if ($corto) $dias[$corto]++;
             }
         }
 
-        // ─── 7. Gráfica de pie: reservaciones por edificio
-        //        Fallback: espacios por edificio si no hay reservaciones
         $graficaEdificios = [];
-
-        if ($totalReservaciones > 0) {
-            foreach ($reservaciones as $r) {
-                $idEspacio      = $r['id_espacio'] ?? null;
-                $idPiso         = $mapEspacioPiso[$idEspacio] ?? null;
-                $idEdificio     = $mapPisos[$idPiso] ?? null;
-                $nombreEdificio = $mapEdificios[$idEdificio] ?? null;
-
-                if ($nombreEdificio) {
-                    $graficaEdificios[$nombreEdificio] = ($graficaEdificios[$nombreEdificio] ?? 0) + 1;
-                }
-            }
-        } else {
-            foreach ($espacios as $e) {
-                $idPiso = $e['id_piso'] ?? null;
-                if (is_array($idPiso)) {
-                    $idPiso = $idPiso['id_piso'] ?? null;
-                }
-                $idEdificio     = $mapPisos[$idPiso] ?? null;
-                $nombreEdificio = $mapEdificios[$idEdificio] ?? null;
-
-                if ($nombreEdificio) {
-                    $graficaEdificios[$nombreEdificio] = ($graficaEdificios[$nombreEdificio] ?? 0) + 1;
-                }
-            }
+        $fuente = $totalReservaciones > 0 ? $reservaciones : $espacios;
+        foreach ($fuente as $item) {
+            $idEspacio      = $item['id_espacio'] ?? null;
+            $idPiso         = $totalReservaciones > 0 ? ($mapEspacioPiso[$idEspacio] ?? null) : ($item['id_piso'] ?? null);
+            if (is_array($idPiso)) $idPiso = $idPiso['id_piso'] ?? null;
+            $idEdificio     = $mapPisos[$idPiso] ?? null;
+            $nombreEdificio = $mapEdificios[$idEdificio] ?? null;
+            if ($nombreEdificio) $graficaEdificios[$nombreEdificio] = ($graficaEdificios[$nombreEdificio] ?? 0) + 1;
         }
 
         return view('admin.dashboard', [
@@ -148,55 +90,161 @@ class AdminController extends Controller
         ]);
     }
 
-    // ─── SOLICITUDES / RESERVACIONES ──────────────────────────
+    // ─── SOLICITUDES ──────────────────────────────────────────────────────────
     public function solicitudes()
     {
-        $res = Http::withHeaders(['Authorization' => "Bearer {$this->token()}"])
-                   ->get($this->apiUrl() . '/reservaciones/');
+        $headers = $this->headers();
+        
+        // 1. Obtener datos
+        $resReservas = Http::withHeaders($headers)->timeout(60)->get($this->apiUrl() . '/reservaciones/');
+        $resUsuarios = Http::withHeaders($headers)->timeout(60)->get($this->apiUrl() . '/usuarios/');
+        $resEspacios = Http::withHeaders($headers)->timeout(60)->get($this->apiUrl() . '/espacios/');
 
-        $solicitudes = $res->successful() ? $res->json() : [];
+        // Inicializar siempre con las llaves vacías para evitar el error "Undefined array key"
+        $solicitudesProcesadas = [
+            'pendientes'  => [],
+            'aprobadas'   => [],
+            'rechazadas'  => [],
+            'finalizadas' => [],
+            'canceladas'  => [],
+        ];
+
+        if ($resReservas->successful()) {
+            $usuariosMap = collect($resUsuarios->json() ?? [])->pluck('nombre', 'id_usuario');
+            $matriculasMap = collect($resUsuarios->json() ?? [])->pluck('matricula', 'id_usuario');
+            $espaciosMap = collect($resEspacios->json() ?? [])->pluck('nombre_espacio', 'id_espacio');
+
+            $solicitudesRaw = $resReservas->json();
+
+            // Mapeo de IDs de estado de tu base de datos a las llaves del array
+            $estadoMap = [
+                1 => 'pendientes',
+                2 => 'aprobadas',
+                3 => 'rechazadas',
+                4 => 'finalizadas',
+                5 => 'canceladas'
+            ];
+
+            // IMPORTANTE: Si la API devuelve una lista plana, iteramos y agrupamos manualmente
+            // Si la API ya viene agrupada, ajustamos la lógica:
+            $dataAIterar = isset($solicitudesRaw[0]) ? $solicitudesRaw : []; // Asumimos lista plana si el primer elemento es numérico
+
+            foreach ($dataAIterar as $s) {
+                $item = (array) $s;
+                $idEstado = $item['id_estado_reservacion'] ?? 0;
+                $key = $estadoMap[$idEstado] ?? null;
+
+                if ($key) {
+                    $idU = $item['id_usuario'] ?? null;
+                    $idE = $item['id_espacio'] ?? null;
+
+                    $item['nombre_usuario'] = $usuariosMap[$idU] ?? 'Usuario Desconocido';
+                    $item['matricula']      = $matriculasMap[$idU] ?? '—';
+                    $item['nombre_espacio'] = $espaciosMap[$idE] ?? 'Espacio Desconocido';
+
+                    $solicitudesProcesadas[$key][] = $item;
+                }
+            }
+        }
 
         return view('admin.solicitudes', [
-            'userData'    => Session::get('user_data', []),
-            'solicitudes' => $solicitudes,
+            'userData'    => \Illuminate\Support\Facades\Session::get('user_data', []),
+            'solicitudes' => $solicitudesProcesadas,
         ]);
     }
 
     public function actualizarSolicitud(Request $request, $id)
     {
-        // Usa el endpoint POST /reservaciones/gestionar
-        $res = Http::withHeaders(['Authorization' => "Bearer {$this->token()}"])
+        // La API espera id_estado_reservacion como entero (2 para Aprobar, 3 para Rechazar)
+        $idEstado = $request->input('estatus') === 'Aprobado' ? 2 : 3;
+
+        $res = Http::withHeaders($this->headers())
+                   ->timeout(60)
                    ->post($this->apiUrl() . '/reservaciones/gestionar', [
                        'id_reservacion'        => (int) $id,
-                       'id_estado_reservacion' => $request->input('id_estado_reservacion'),
-                       'observaciones'         => $request->input('observaciones', ''),
+                       'id_estado_reservacion' => $idEstado,
+                       'observaciones'         => $request->input('observaciones', 'Gestionado desde panel de administración'),
                    ]);
 
+        if ($res->successful()) {
+            return response()->json(['success' => true]);
+        }
+
         return response()->json([
-            'success' => $res->successful(),
-            'message' => $res->json()['detail'] ?? null,
-        ], $res->successful() ? 200 : 422);
+            'success' => false, 
+            'message' => $res->json()['detail'] ?? 'Error al procesar la solicitud'
+        ], 422);
+    }
+
+    // ─── CATÁLOGOS DE ESPACIOS (privado) ──────────────────────────────────────
+    private function catalogosEspacios(): array
+    {
+        $headers  = $this->headers();
+        $edificios = Http::withHeaders($headers)->timeout(60)->get($this->apiUrl() . '/espacios/catalogos/edificios')->json() ?? [];
+
+        $pisos             = [];
+        $mapaPisosEdificio = [];
+
+        foreach ($edificios as $edificio) {
+            $idEdificio     = $edificio['id_edificio'];
+            $nombreEdificio = $edificio['nombre_edificio'];
+
+            $resPisos = Http::withHeaders($headers)->timeout(60)->get($this->apiUrl() . "/espacios/catalogos/pisos/{$idEdificio}");
+            if ($resPisos->successful()) {
+                foreach ($resPisos->json() as $piso) {
+                    $idPiso     = $piso['id_piso'];
+                    $nombrePiso = $piso['numero_piso'] ?? "Piso {$idPiso}";
+                    $pisos[]    = ['id_piso' => $idPiso, 'nombre_piso' => "{$nombreEdificio} - {$nombrePiso}"];
+                    $mapaPisosEdificio[$idPiso] = $nombreEdificio;
+                }
+            }
+        }
+
+        $resTipos = Http::withHeaders($headers)->timeout(60)->get($this->apiUrl() . '/espacios/catalogos/tipos');
+        $tipos    = [];
+        if ($resTipos->successful()) {
+            foreach ($resTipos->json() as $t) {
+                $tipos[] = [
+                    'id_tipo_espacio'     => $t['id_tipo_espacio'] ?? $t['id'] ?? null,
+                    'nombre_tipo_espacio' => $t['nombre_tipo_espacio'] ?? $t['nombre'] ?? '—',
+                ];
+            }
+        }
+
+        $resEquipos        = Http::withHeaders($headers)->timeout(60)->get($this->apiUrl() . '/espacios/catalogos/equipamiento');
+        $tiposEquipamiento = [];
+        if ($resEquipos->successful()) {
+            foreach ($resEquipos->json() as $eq) {
+                $tiposEquipamiento[] = [
+                    'id_tipo_equipamiento'     => $eq['id_tipo_equipamiento'],
+                    'nombre_tipo_equipamiento' => $eq['nombre_tipo_equipamiento'],
+                ];
+            }
+        }
+
+        return compact('tipos', 'pisos', 'tiposEquipamiento', 'mapaPisosEdificio');
     }
 
     // ─── ESPACIOS ─────────────────────────────────────────────────────────────
     public function espacios()
     {
-        $token = $this->token();
-        $headers = ['Authorization' => "Bearer {$token}"];
+        $catalogos         = $this->catalogosEspacios();
+        $mapaTipos         = collect($catalogos['tipos'])->pluck('nombre_tipo_espacio', 'id_tipo_espacio')->toArray();
+        $mapaPisosEdificio = $catalogos['mapaPisosEdificio'];
 
-        // 1. Obtener espacios desde la API de Render
-        $resEspacios = Http::withHeaders($headers)->get($this->apiUrl() . '/espacios');
-        $espaciosRaw = $resEspacios->successful() ? $resEspacios->json() : [];
+        $espaciosRaw = Http::withHeaders($this->headers())->timeout(60)->get($this->apiUrl() . '/espacios')->json() ?? [];
 
-        // 2. Mapear los datos para que coincidan con lo que espera tu Blade
-        $espacios = collect($espaciosRaw)->map(function ($e) {
+        $espacios = collect($espaciosRaw)->map(function ($e) use ($mapaPisosEdificio, $mapaTipos) {
+            $idPiso = $e['id_piso'] ?? null;
+            if (is_array($idPiso)) $idPiso = $idPiso['id_piso'] ?? null;
+
             return [
                 'id_espacio' => $e['id_espacio'],
-                'nombre'     => $e['nombre_espacio'], // Transformamos nombre_espacio a nombre
+                'nombre'     => $e['nombre_espacio'],
                 'capacidad'  => $e['capacidad'],
-                'tipo'       => $this->mapTipoEspacio($e['id_tipo_espacio']), // Convertimos ID a Texto
-                'estatus'    => $this->mapEstadoEspacio($e['id_estado_espacio']), // Convertimos ID a Texto
-                'edificio'   => $this->mapEdificio($e['id_piso']), // Usamos id_piso como referencia de edificio según tu captura
+                'tipo'       => $mapaTipos[$e['id_tipo_espacio'] ?? null] ?? '—',
+                'estatus'    => $this->mapEstadoEspacio($e['id_estado_espacio'] ?? null),
+                'edificio'   => $mapaPisosEdificio[$idPiso] ?? '—',
             ];
         });
 
@@ -205,139 +253,180 @@ class AdminController extends Controller
             'espacios' => $espacios,
         ]);
     }
+
     public function espaciosCreate()
     {
+        $catalogos = $this->catalogosEspacios();
         return view('admin.espacios-form', [
-            'userData' => Session::get('user_data', []),
-            'espacio'  => null,
+            'userData'             => Session::get('user_data', []),
+            'espacio'              => null,
+            'equipamientoAsignado' => [],
+            'tiposEquipamiento'    => $catalogos['tiposEquipamiento'],
+            'tipos'                => $catalogos['tipos'],
+            'pisos'                => $catalogos['pisos'],
         ]);
     }
 
     public function espaciosEdit($id)
     {
-        $token = $this->token();
-        $headers = ['Authorization' => "Bearer {$token}"];
+        $headers = $this->headers();
 
-        // 1. Datos del espacio
-        $res = Http::withHeaders($headers)->get($this->apiUrl() . "/espacios/{$id}");
-        if (!$res->successful()) return redirect()->route('admin.espacios')->with('error', 'Espacio no encontrado');
-        
+        $res = Http::withHeaders($headers)->timeout(60)->get($this->apiUrl() . "/espacios/{$id}");
+        if (!$res->successful()) {
+            return redirect()->route('admin.espacios')->with('error', 'Espacio no encontrado');
+        }
+
         $data = $res->json();
+
+        // La API puede devolver estos campos como objetos anidados o integers simples
+        $idTipo   = $data['id_tipo_espacio'] ?? 1;
+        $idEstado = $data['id_estado_espacio'] ?? 1;
+        $idPiso   = $data['id_piso'] ?? 1;
+
+        if (is_array($idTipo))   $idTipo   = $idTipo['id_tipo_espacio'] ?? 1;
+        if (is_array($idEstado)) $idEstado = $idEstado['id_estado_espacio'] ?? 1;
+        if (is_array($idPiso))   $idPiso   = $idPiso['id_piso'] ?? 1;
+
         $espacio = [
-            'id'                => $data['id_espacio'],
+            'id_espacio'        => $data['id_espacio'],
             'nombre'            => $data['nombre_espacio'] ?? '',
+            'codigo_espacio'    => $data['codigo_espacio'] ?? '',
             'capacidad'         => $data['capacidad'] ?? 0,
-            'id_tipo_espacio'   => $data['id_tipo_espacio'] ?? 1,
-            'id_estado_espacio' => $data['id_estado_espacio'] ?? 1,
-            'id_piso'           => $data['id_piso'] ?? 1,
+            'id_tipo_espacio'   => (int) $idTipo,
+            'id_estado_espacio' => (int) $idEstado,
+            'id_piso'           => (int) $idPiso,
         ];
 
-        // 2. Equipamiento actual (Si falla, enviamos array vacío)
-        $resEquipos = Http::withHeaders($headers)->get($this->apiUrl() . "/espacios/{$id}/equipamiento");
-        $idsAsignados = $resEquipos->successful() ? collect($resEquipos->json())->pluck('id_equipamiento')->toArray() : [];
+        $resEquip             = Http::withHeaders($headers)->timeout(60)->get($this->apiUrl() . "/espacios/{$id}/equipamiento");
+        $equipamientoAsignado = $resEquip->successful() ? $resEquip->json() : [];
 
-        // 3. CATÁLOGOS MANUALES (Para evitar el "Not Found" de la API)
-        // Si tu API no tiene estos endpoints, definirlos aquí es la solución más segura
-        $tipos = [
-            ['id_tipo_espacio' => 1, 'nombre_tipo_espacio' => 'Laboratorio'],
-            ['id_tipo_espacio' => 2, 'nombre_tipo_espacio' => 'Aula'],
-            ['id_tipo_espacio' => 3, 'nombre_tipo_espacio' => 'Auditorio'],
-        ];
-
-        $pisos = [
-            ['id_piso' => 1, 'nombre_piso' => 'Planta Baja'],
-            ['id_piso' => 2, 'nombre_piso' => 'Piso 1'],
-            ['id_piso' => 3, 'nombre_piso' => 'Piso 2'],
-        ];
-
-        $equiposLista = [
-            ['id_equipamiento' => 1, 'nombre_tipo_equipamiento' => 'Proyector'],
-            ['id_equipamiento' => 2, 'nombre_tipo_equipamiento' => 'Aire Acondicionado'],
-            ['id_equipamiento' => 3, 'nombre_tipo_equipamiento' => 'PC / Laptop'],
-            ['id_equipamiento' => 4, 'nombre_tipo_equipamiento' => 'Pizarrón'],
-        ];
+        $catalogos = $this->catalogosEspacios();
 
         return view('admin.espacios-form', [
-            'userData'      => Session::get('user_data', []),
-            'espacio'       => $espacio,
-            'idsAsignados'  => $idsAsignados,
-            'equiposLista'  => $equiposLista,
-            'tipos'         => $tipos,
-            'pisos'         => $pisos
+            'userData'             => Session::get('user_data', []),
+            'espacio'              => $espacio,
+            'equipamientoAsignado' => $equipamientoAsignado,
+            'tiposEquipamiento'    => $catalogos['tiposEquipamiento'],
+            'tipos'                => $catalogos['tipos'],
+            'pisos'                => $catalogos['pisos'],
         ]);
     }
 
     public function espaciosStore(Request $request)
-    {
-        $res = Http::withHeaders(['Authorization' => "Bearer {$this->token()}"])
-                   ->post($this->apiUrl() . '/espacios', $request->all());
+{
+    $payload = [
+        'codigo_espacio'    => $request->input('codigo_espacio'),
+        'nombre_espacio'    => $request->input('nombre'),
+        'capacidad'         => (int) $request->input('capacidad'),
+        'id_tipo_espacio'   => (int) $request->input('id_tipo_espacio'),
+        'id_estado_espacio' => (int) $request->input('id_estado_espacio'),
+        'id_piso'           => (int) $request->input('id_piso'),
+    ];
+
+    try {
+        $res = Http::withHeaders($this->headers())
+                   ->asJson()
+                   ->timeout(60)
+                   ->post($this->apiUrl() . '/espacios', $payload);
 
         if ($res->successful()) {
-            return response()->json(['success' => true]);
+            return response()->json(['success' => true, 'id_espacio' => $res->json()['id_espacio'] ?? null]);
         }
-        return response()->json(['success' => false, 'message' => $res->json()['detail'] ?? 'Error'], 422);
+
+        return response()->json([
+            'success'  => false,
+            'message'  => $res->json()['detail'] ?? 'Error al crear',
+            'status'   => $res->status(),
+            'body_raw' => $res->body(),  // 👈 temporal
+        ], 422);
+
+    } catch (\Exception $e) {
+        return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
     }
-
+}
     public function espaciosUpdate(Request $request, $id)
+{
+    $payload = [
+        'nombre_espacio'    => $request->input('nombre'),
+        'capacidad'         => (int) $request->input('capacidad'),
+        'id_tipo_espacio'   => (int) $request->input('id_tipo_espacio'),
+        'id_estado_espacio' => (int) $request->input('id_estado_espacio'),
+        'id_piso'           => (int) $request->input('id_piso'),
+    ];
+
+    try {
+        $res = Http::withHeaders($this->headers())->asJson()->timeout(60)->put($this->apiUrl() . "/espacios/{$id}", $payload);
+        if ($res->successful()) return response()->json(['success' => true]);
+        return response()->json([
+            'success'   => false,
+            'message'   => $res->json()['detail'] ?? 'Error al actualizar',
+            'payload'   => $payload,   // 👈 temporal
+            'status'    => $res->status(),
+            'body_raw'  => $res->body(),
+        ], 422);
+    } catch (\Exception $e) {
+        return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+    }
+}
+
+    public function espaciosDestroy($id)
     {
-        $token = $this->token();
-        $headers = ['Authorization' => "Bearer $token"];
-
-        // 1. Datos del espacio
-        $payload = [
-            'nombre_espacio'    => $request->input('nombre'),
-            'capacidad'         => (int)$request->input('capacidad'),
-            'id_tipo_espacio'   => (int)$request->input('id_tipo_espacio'),
-            'id_estado_espacio' => (int)$request->input('id_estado_espacio'),
-            'id_piso'           => (int)$request->input('id_piso'),
-        ];
-
-        // 2. IDs de equipamiento (vienen del formulario como array)
-        $equipos = $request->input('equipos', []); 
-
         try {
-            // Actualizar espacio
-            $res = Http::withHeaders($headers)->put($this->apiUrl() . "/espacios/{$id}", $payload);
-
-            if ($res->successful()) {
-                // 3. Sincronizar Equipamiento
-                // Enviamos la lista de IDs a tu endpoint de relación
-                Http::withHeaders($headers)->post($this->apiUrl() . "/espacios/{$id}/equipamiento", [
-                    'ids_equipamiento' => $equipos
-                ]);
-
-                return response()->json(['success' => true]);
-            }
-            return response()->json(['success' => false, 'message' => 'Error al actualizar'], 422);
+            $res = Http::withHeaders($this->headers())->timeout(60)->delete($this->apiUrl() . "/espacios/{$id}");
+            if ($res->successful()) return response()->json(['success' => true]);
+            return response()->json(['success' => false, 'message' => $res->json()['detail'] ?? 'Error al eliminar'], 422);
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }
 
-    public function espaciosDestroy($id)
+    // ─── EQUIPAMIENTO DE ESPACIOS ─────────────────────────────────────────────
+    public function equipamientoStore(Request $request, $id)
     {
-        $res = Http::withHeaders(['Authorization' => "Bearer {$this->token()}"])
-                   ->delete($this->apiUrl() . "/espacios/{$id}");
+        try {
+            $res = Http::withHeaders($this->headers())
+                       ->asJson()
+                       ->timeout(60)
+                       ->post($this->apiUrl() . "/espacios/{$id}/equipamiento", [
+                           'id_tipo_equipamiento' => (int) $request->input('id_tipo_equipamiento'),
+                       ]);
 
-        if ($res->successful()) {
-            return response()->json(['success' => true]);
+            if ($res->successful()) {
+                return response()->json(['success' => true]);
+            }
+
+            $detalle = $res->json()['detail'] ?? null;
+            $mensaje = is_array($detalle)
+                ? collect($detalle)->map(fn($e) => $e['msg'] ?? '')->implode(', ')
+                : ($detalle ?? 'Error al agregar equipamiento');
+
+            return response()->json(['success' => false, 'message' => $mensaje], 200);
+
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 200);
         }
-        return response()->json(['success' => false], 422);
     }
 
-    // ─── USUARIOS (OPTIMIZADO) ──────────────────────────────────────────────────
+    public function equipamientoDestroy($id, $idEquip)
+    {
+        try {
+            $res = Http::withHeaders($this->headers())->timeout(60)->delete($this->apiUrl() . "/espacios/{$id}/equipamiento/{$idEquip}");
+            if ($res->successful()) return response()->json(['success' => true]);
+            return response()->json(['success' => false, 'message' => $res->json()['detail'] ?? 'Error al eliminar'], 422);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    // ─── USUARIOS ─────────────────────────────────────────────────────────────
     public function usuarios()
     {
-        // 1. Obtener todos los usuarios
-        $resUsuarios = Http::withHeaders(['Authorization' => "Bearer {$this->token()}"])
-                           ->get($this->apiUrl() . '/usuarios/');
-        $usuarios = $resUsuarios->successful() ? $resUsuarios->json() : [];
+        $resUsuarios = Http::withHeaders($this->headers())->timeout(60)->get($this->apiUrl() . '/usuarios/');
+        $usuarios    = $resUsuarios->successful() ? $resUsuarios->json() : [];
 
-        // 2. Obtener catálogo de carreras para mostrar nombres en la tabla
-        $resCarreras = Http::get($this->apiUrl() . '/usuarios/catalogos/carreras');
-        $carreras = collect($resCarreras->json())->pluck('nombre_carrera', 'id_carrera');
+        $resCarreras = Http::timeout(60)->get($this->apiUrl() . '/usuarios/catalogos/carreras');
+        $carreras    = collect($resCarreras->json())->pluck('nombre_carrera', 'id_carrera');
 
-        // 3. Mapear nombres de carreras
         $usuariosConCarrera = collect($usuarios)->map(function ($u) use ($carreras) {
             $u['nombre_carrera'] = $carreras[$u['id_carrera']] ?? 'Sin carrera';
             return $u;
@@ -345,140 +434,109 @@ class AdminController extends Controller
 
         return view('admin.usuarios', [
             'userData' => Session::get('user_data', []),
-            'usuarios' => $usuariosConCarrera
+            'usuarios' => $usuariosConCarrera,
         ]);
     }
 
     public function usuariosCreate()
     {
-        // Obtener catálogos para los selects del formulario
-        $carreras = Http::get($this->apiUrl() . '/usuarios/catalogos/carreras')->json() ?? [];
-        $roles    = Http::get($this->apiUrl() . '/usuarios/catalogos/roles')->json() ?? [];
-
+        $carreras = Http::timeout(60)->get($this->apiUrl() . '/usuarios/catalogos/carreras')->json() ?? [];
+        $roles    = Http::timeout(60)->get($this->apiUrl() . '/usuarios/catalogos/roles')->json() ?? [];
         return view('admin.usuarios-form', [
             'userData' => Session::get('user_data', []),
             'usuario'  => null,
             'carreras' => $carreras,
-            'roles'    => $roles
+            'roles'    => $roles,
         ]);
     }
 
-    public function usuariosUpdate(Request $request, $id)
-    {
-        // Usamos $request->input() para asegurar que lea el JSON del fetch
-        $datosParaRender = [
-            'matricula'    => $request->input('matricula'), // Agrégalo aunque sea readonly en el HTML
-            'correo'       => $request->input('correo'),    // Agrégalo también
-            'nombre'       => $request->input('nombre'),
-            'apellido_p'   => $request->input('apellido_p'),
-            'apellido_m'   => $request->input('apellido_m') ?? '',
-            'cuatrimestre' => (int)$request->input('cuatrimestre'), 
-            'id_carrera'   => (int)$request->input('id_carrera'),
-            'id_rol'       => (int)$request->input('id_rol'), 
-        ];
-
-        try {
-            $res = Http::withHeaders([
-                'Authorization' => "Bearer {$this->token()}",
-                'Accept'        => 'application/json',
-            ])->put($this->apiUrl() . "/usuarios/{$id}", $datosParaRender);
-
-            if ($res->successful()) {
-                return response()->json(['success' => true]);
-            }
-
-            return response()->json([
-                'success' => false,
-                'message' => $res->json()['detail'] ?? 'Error en la API de Render',
-                'debug'   => $res->json() // Para ver qué error devuelve FastAPI
-            ], 422);
-
-        } catch (\Exception $e) {
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
-        }
-    }
     public function usuariosEdit($id)
     {
-        // 1. Datos del usuario a editar
-        $res = Http::withHeaders(['Authorization' => "Bearer {$this->token()}"])
-                   ->get($this->apiUrl() . "/usuarios/{$id}");
-        $usuario = $res->successful() ? $res->json() : null;
-
-        // 2. Catálogos para los selects
-        $carreras = Http::get($this->apiUrl() . '/usuarios/catalogos/carreras')->json() ?? [];
-        $roles    = Http::get($this->apiUrl() . '/usuarios/catalogos/roles')->json() ?? [];
-
+        $res      = Http::withHeaders($this->headers())->timeout(60)->get($this->apiUrl() . "/usuarios/{$id}");
+        $usuario  = $res->successful() ? $res->json() : null;
+        $carreras = Http::timeout(60)->get($this->apiUrl() . '/usuarios/catalogos/carreras')->json() ?? [];
+        $roles    = Http::timeout(60)->get($this->apiUrl() . '/usuarios/catalogos/roles')->json() ?? [];
         return view('admin.usuarios-form', [
             'userData' => Session::get('user_data', []),
             'usuario'  => $usuario,
             'carreras' => $carreras,
-            'roles'    => $roles
+            'roles'    => $roles,
         ]);
     }
 
     public function usuariosStore(Request $request)
     {
-        // Importante: El registro suele ser un endpoint abierto o específico
-        $res = Http::post($this->apiUrl() . '/auth/registro', $request->all());
+        $res = Http::asJson()->timeout(60)->post($this->apiUrl() . '/auth/registro', $request->all());
+        if ($res->successful()) return response()->json(['success' => true]);
+        return response()->json(['success' => false, 'message' => $res->json()['detail'] ?? 'Error al registrar'], 422);
+    }
 
-        if ($res->successful()) {
-            return response()->json(['success' => true]);
+    public function usuariosUpdate(Request $request, $id)
+    {
+        $datos = [
+            'matricula'    => $request->input('matricula'),
+            'correo'       => $request->input('correo'),
+            'nombre'       => $request->input('nombre'),
+            'apellido_p'   => $request->input('apellido_p'),
+            'apellido_m'   => $request->input('apellido_m') ?? '',
+            'cuatrimestre' => (int) $request->input('cuatrimestre'),
+            'id_carrera'   => (int) $request->input('id_carrera'),
+            'id_rol'       => (int) $request->input('id_rol'),
+        ];
+
+        try {
+            $res = Http::withHeaders($this->headers())->asJson()->timeout(60)->put($this->apiUrl() . "/usuarios/{$id}", $datos);
+            if ($res->successful()) return response()->json(['success' => true]);
+            return response()->json(['success' => false, 'message' => $res->json()['detail'] ?? 'Error al actualizar'], 422);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
-        
-        // Manejo de errores detallado de FastAPI
-        return response()->json([
-            'success' => false, 
-            'message' => $res->json()['detail'] ?? 'Error al registrar'
-        ], 422);
+    }
+
+    public function usuariosDestroy($id)
+    {
+        try {
+            $res = Http::withHeaders($this->headers())->timeout(60)->delete($this->apiUrl() . "/usuarios/{$id}");
+            if ($res->successful()) return response()->json(['success' => true]);
+            return response()->json(['success' => false, 'message' => $res->json()['detail'] ?? 'Error al eliminar'], 422);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
     }
 
     // ─── REPORTES ─────────────────────────────────────────────────────────────
     public function reportes()
     {
-        return view('admin.reportes', [
-            'userData' => Session::get('user_data', []),
-        ]);
+        return view('admin.reportes', ['userData' => Session::get('user_data', [])]);
     }
 
     // ─── PERFIL ───────────────────────────────────────────────────────────────
     public function perfil()
     {
         $userData = Session::get('user_data', []);
-        $id = $userData['id_usuario'] ?? null;
-
+        $id       = $userData['id_usuario'] ?? null;
         if ($id) {
-            $res = Http::withHeaders(['Authorization' => "Bearer {$this->token()}"])
-                       ->get($this->apiUrl() . "/usuarios/{$id}");
+            $res = Http::withHeaders($this->headers())->timeout(60)->get($this->apiUrl() . "/usuarios/{$id}");
             if ($res->successful()) {
                 $userData = $res->json();
                 Session::put('user_data', $userData);
             }
         }
-
-        return view('admin.perfil', [
-            'userData' => $userData,
-        ]);
+        return view('admin.perfil', ['userData' => $userData]);
     }
 
     public function perfilEdit()
     {
-        return view('admin.perfil-form', [
-            'userData' => Session::get('user_data', []),
-        ]);
+        return view('admin.perfil-form', ['userData' => Session::get('user_data', [])]);
     }
 
     public function perfilUpdate(Request $request)
     {
         $userData = Session::get('user_data', []);
-        $id = $userData['id_usuario'] ?? null;
+        $id       = $userData['id_usuario'] ?? null;
+        if (!$id) return response()->json(['success' => false, 'message' => 'Usuario no identificado'], 400);
 
-        if (!$id) {
-            return response()->json(['success' => false, 'message' => 'Usuario no identificado'], 400);
-        }
-
-        $res = Http::withHeaders(['Authorization' => "Bearer {$this->token()}"])
-                   ->put($this->apiUrl() . "/usuarios/{$id}", $request->all());
-
+        $res = Http::withHeaders($this->headers())->asJson()->timeout(60)->put($this->apiUrl() . "/usuarios/{$id}", $request->all());
         if ($res->successful()) {
             Session::put('user_data', $res->json());
             return response()->json(['success' => true]);
@@ -486,37 +544,20 @@ class AdminController extends Controller
         return response()->json(['success' => false, 'message' => $res->json()['detail'] ?? 'Error'], 422);
     }
 
-    // --- AGREGA ESTOS MÉTODOS AL FINAL DE TU AdminController (antes de la última llave) ---
-
-    private function mapTipoEspacio($id)
+    // ─── PING ─────────────────────────────────────────────────────────────────
+    public function pingApi()
     {
-        $tipos = [
-            1 => 'Laboratorio', 2 => 'Aula', 3 => 'Cancha', 
-            4 => 'Cómputo', 5 => 'Auditorio', 6 => 'Juntas', 
-            7 => 'Psicológico', 8 => 'Tutorías', 9 => 'Estudio'
-        ];
-        return $tipos[$id] ?? 'Otro';
+        try {
+            $res = Http::timeout(60)->get($this->apiUrl() . '/');
+            return response()->json(['ok' => $res->successful()]);
+        } catch (\Exception $e) {
+            return response()->json(['ok' => false]);
+        }
     }
 
-    private function mapEstadoEspacio($id)
+    // ─── HELPERS ──────────────────────────────────────────────────────────────
+    private function mapEstadoEspacio($id): string
     {
-        // Basado en los colores de tu Blade: Disponible, Mantenimiento, Ocupado
-        $estados = [
-            1 => 'Disponible',
-            2 => 'Mantenimiento',
-            3 => 'Ocupado'
-        ];
-        return $estados[$id] ?? 'Desconocido';
-    }
-
-    private function mapEdificio($id_piso)
-    {
-        // Mapeo temporal basado en la columna id_piso de tu imagen
-        // Si tienes una API de edificios, podrías llamarla aquí.
-        $edificios = [
-            1 => 'Edificio A', 2 => 'Edificio A', 3 => 'Edificio B',
-            4 => 'Edificio B', 5 => 'Canchas', 6 => 'Edificio C'
-        ];
-        return $edificios[$id_piso] ?? 'General';
+        return [1 => 'Disponible', 2 => 'Mantenimiento', 3 => 'Ocupado'][$id] ?? 'Desconocido';
     }
 }

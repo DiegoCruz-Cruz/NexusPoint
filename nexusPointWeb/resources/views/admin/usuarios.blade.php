@@ -78,7 +78,7 @@
                         <a href="{{ route('admin.usuarios.edit', $u['id_usuario'] ?? $u['id']) }}"
                         class="btn-action btn-edit" title="Editar">✎</a>
                         <button class="btn-action btn-delete" title="Eliminar"
-                        onclick="openDeleteModal({{ $u['id_usuario'] ?? $u['id'] }}, '{{ $u['nombre'] ?? '' }}')">🗑</button>
+                            onclick="openDeleteModal({{ $u['id_usuario'] ?? $u['id'] ?? 0 }}, '{{ $u['nombre'] ?? '' }}')">🗑</button>
                     </div>
                 </td>
             </tr>
@@ -91,14 +91,30 @@
 {{-- Modal eliminar --}}
 <div id="deleteModal" class="modal-overlay" style="display:none;">
     <div class="modal-content">
-        <div style="font-size:2.5rem; margin-bottom:10px;">⚠️</div>
-        <h3 style="color:var(--color-secundario);">¿Eliminar usuario?</h3>
-        <p id="deleteText" style="color:#666; margin-top:8px;"></p>
-        <div style="display:flex; gap:10px; justify-content:center; margin-top:20px;">
-            <button style="background:#eee; color:#333; border:none; padding:8px 20px; border-radius:50px; cursor:pointer; font-weight:700;"
-                onclick="closeDeleteModal()">Cancelar</button>
-            <button style="background:#e74c3c; color:white; border:none; padding:8px 20px; border-radius:50px; cursor:pointer; font-weight:700;"
-                onclick="confirmDelete()">Eliminar</button>
+        {{-- Estado: confirmar --}}
+        <div id="deleteStateConfirm">
+            <div style="font-size:2.5rem; margin-bottom:10px;">⚠️</div>
+            <h3 style="color:var(--color-secundario);">¿Eliminar usuario?</h3>
+            <p id="deleteText" style="color:#666; margin-top:8px;"></p>
+            <div style="display:flex; gap:10px; justify-content:center; margin-top:20px;">
+                <button style="background:#eee; color:#333; border:none; padding:8px 20px; border-radius:50px; cursor:pointer; font-weight:700;"
+                    onclick="closeDeleteModal()">Cancelar</button>
+                <button id="btnConfirmDelete" style="background:#e74c3c; color:white; border:none; padding:8px 20px; border-radius:50px; cursor:pointer; font-weight:700;"
+                    onclick="confirmDelete()">Eliminar</button>
+            </div>
+        </div>
+        {{-- Estado: error (usuario con registros vinculados u otro error de API) --}}
+        <div id="deleteStateError" style="display:none;">
+            <div style="font-size:2.5rem; margin-bottom:10px;">🚫</div>
+            <h3 style="color:#c0392b;">No se puede eliminar</h3>
+            <p id="deleteErrorText" style="color:#666; margin-top:8px; line-height:1.5;"></p>
+            <button style="background:var(--color-secundario); color:white; border:none; padding:10px 28px; border-radius:50px; cursor:pointer; font-weight:700; margin-top:20px;"
+                onclick="closeDeleteModal()">Entendido</button>
+        </div>
+        {{-- Estado: cargando --}}
+        <div id="deleteStateLoading" style="display:none;">
+            <div style="font-size:2rem; margin-bottom:10px;">⏳</div>
+            <p style="color:#666;">Eliminando usuario...</p>
         </div>
     </div>
 </div>
@@ -108,26 +124,61 @@
 <script>
     let deleteId = 0;
 
+    function setDeleteState(state) {
+        document.getElementById('deleteStateConfirm').style.display  = state === 'confirm'  ? 'block' : 'none';
+        document.getElementById('deleteStateError').style.display    = state === 'error'    ? 'block' : 'none';
+        document.getElementById('deleteStateLoading').style.display  = state === 'loading'  ? 'block' : 'none';
+    }
+
     function openDeleteModal(id, nombre) {
         deleteId = id;
-        document.getElementById('deleteText').innerText = `Se eliminará a "${nombre}" del sistema.`;
+        document.getElementById('deleteText').innerText = `Se eliminará a "${nombre}" del sistema permanentemente.`;
+        setDeleteState('confirm');
         document.getElementById('deleteModal').style.display = 'flex';
     }
+
     function closeDeleteModal() {
         document.getElementById('deleteModal').style.display = 'none';
     }
+
     function confirmDelete() {
+        if (deleteId === 0) return;
+
+        setDeleteState('loading');
+
         fetch(`/admin/usuarios/${deleteId}`, {
             method: 'DELETE',
-            headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content }
+            headers: {
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                'Accept': 'application/json'
+            }
         })
-        .then(r => r.json())
-        .then(data => {
-            closeDeleteModal();
-            if (data.success) location.reload();
-            else alert('Error al eliminar usuario');
+        // Siempre leer el JSON sin importar el status HTTP
+        .then(r => r.json().then(data => ({ status: r.status, data })))
+        .then(({ status, data }) => {
+            if (data.success) {
+                closeDeleteModal();
+                location.reload();
+                return;
+            }
+
+            // 422 = la API rechazó la operación (ej: usuario con reservaciones vinculadas)
+            // 500 = error inesperado en el servidor
+            const msg = data.message
+                || (status === 422
+                    ? 'Este usuario tiene registros vinculados (reservaciones u otros) y no puede eliminarse directamente. Reasigna o elimina esos registros primero.'
+                    : 'Ocurrió un error inesperado. Intenta de nuevo más tarde.');
+
+            document.getElementById('deleteErrorText').innerText = msg;
+            setDeleteState('error');
+        })
+        .catch(() => {
+            document.getElementById('deleteErrorText').innerText =
+                'No se pudo conectar con el servidor. Verifica tu conexión e intenta de nuevo.';
+            setDeleteState('error');
         });
     }
+
     function filterTable() {
         const filter = document.getElementById("searchInput").value.toUpperCase();
         document.querySelectorAll("#usuariosTable tbody tr").forEach(row => {
