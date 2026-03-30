@@ -3,7 +3,7 @@
 @section('titulo', 'Usuarios')
 
 @section('contenido')
-<header class="section-header">
+<header class="section-header" style="display:flex; justify-content:space-between; align-items:center;">
     <div>
         <h1>Gestión de <span class="text-primario">Usuarios</span></h1>
         <p>Administra los usuarios registrados en el sistema.</p>
@@ -42,12 +42,30 @@
                 <td>{{ $u['matricula'] ?? '—' }}</td>
                 <td><strong>{{ ($u['nombre'] ?? '') . ' ' . ($u['apellido_p'] ?? '') . ' ' . ($u['apellido_m'] ?? '') }}</strong></td>
                 <td>{{ $u['correo'] ?? '—' }}</td>
-                <td>{{ $u['nombre_carrera'] ?? $u['id_carrera'] ?? '—' }}</td>
+                <td>{{ $u['nombre_carrera'] }}</td>
                 <td>
                     @php $rol = $u['id_rol'] ?? 0; @endphp
-                    <span class="badge {{ $rol == 1 ? 'badge-admin' : ($rol == 2 ? 'badge-docente' : 'badge-personal') }}">
-                        {{ $rol == 1 ? 'Admin' : ($rol == 2 ? 'Docente' : 'Personal') }}
-                    </span>
+                    @if($rol == 1)
+                        <span class="badge" style="background: #d1fae5; color: #374151; padding: 5px 12px; border-radius: 20px; font-weight: bold; font-size: 0.85rem;">
+                            Alumno
+                        </span>
+                    @elseif($rol == 2)
+                        <span class="badge" style="background: #e0e7ff; color: #3730a3; padding: 5px 12px; border-radius: 20px; font-weight: bold; font-size: 0.85rem;">
+                            Docente
+                        </span>
+                    @elseif($rol == 3)
+                        <span class="badge" style="background: #fef3c7; color: #92400e; padding: 5px 12px; border-radius: 20px; font-weight: bold; font-size: 0.85rem;">
+                            Encargado
+                        </span>
+                    @elseif($rol == 4)
+                        <span class="badge" style="background: #f3f4f6; color: #065f46; padding: 5px 12px; border-radius: 20px; font-weight: bold; font-size: 0.85rem;">
+                            Admin
+                        </span>
+                    @else
+                        <span class="badge" style="background: #fee2e2; color: #991b1b; padding: 5px 12px; border-radius: 20px; font-weight: bold; font-size: 0.85rem;">
+                            Sin Rol
+                        </span>
+                    @endif
                 </td>
                 <td>
                     @php $activo = $u['activo'] ?? true; @endphp
@@ -58,9 +76,9 @@
                 <td>
                     <div class="actions-wrapper" style="display:flex; gap:10px; justify-content:center;">
                         <a href="{{ route('admin.usuarios.edit', $u['id_usuario'] ?? $u['id']) }}"
-                           class="btn-action btn-edit" title="Editar">✎</a>
+                        class="btn-action btn-edit" title="Editar">✎</a>
                         <button class="btn-action btn-delete" title="Eliminar"
-                            onclick="openDeleteModal({{ $u['id_usuario'] ?? $u['id'] }}, '{{ $u['nombre'] ?? '' }}')">🗑</button>
+                        onclick="openDeleteModal({{ $u['id_usuario'] ?? $u['id'] }}, '{{ $u['nombre'] ?? '' }}')">🗑</button>
                     </div>
                 </td>
             </tr>
