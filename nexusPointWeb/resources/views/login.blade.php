@@ -34,9 +34,6 @@
                         {{-- ID corregido: era 'contrasena', debe ser 'password' para que login.js lo lea --}}
                         <input type="password" id="password" placeholder="•••••••••" required>
                     </div>
-                    <div class="forgot-container">
-                        <a href="{{ url('recuperar-password') }}" class="forgot-link">¿Olvidaste tu contraseña?</a>
-                    </div>
 
                     <button type="submit" class="btn-submit">ENTRAR</button>
 
