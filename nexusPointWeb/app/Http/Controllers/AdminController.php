@@ -155,24 +155,42 @@ class AdminController extends Controller
 
     public function actualizarSolicitud(Request $request, $id)
     {
-        // La API espera id_estado_reservacion como entero (2 para Aprobar, 3 para Rechazar)
         $idEstado = $request->input('estatus') === 'Aprobado' ? 2 : 3;
 
+        $userData = Session::get('user_data', []);
+        $idGestor = $userData['id_usuario'] ?? $userData['id'] ?? null;
+
+        $payload = [
+            'id_reservacion'        => (int) $id,
+            'id_usuario_gestor'     => (int) $idGestor,
+            'id_estado_reservacion' => $idEstado,
+            'observaciones'         => $request->input('observaciones', 'Gestionado desde panel de administración'),
+        ];
+
+        // LOG TEMPORAL — ver qué se envía y qué responde la API
+        \Log::info('=== GESTIONAR SOLICITUD ===');
+        \Log::info('Payload enviado:', $payload);
+
         $res = Http::withHeaders($this->headers())
-                   ->timeout(60)
-                   ->post($this->apiUrl() . '/reservaciones/gestionar', [
-                       'id_reservacion'        => (int) $id,
-                       'id_estado_reservacion' => $idEstado,
-                       'observaciones'         => $request->input('observaciones', 'Gestionado desde panel de administración'),
-                   ]);
+                ->timeout(60)
+                ->post($this->apiUrl() . '/reservaciones/gestionar', $payload);
+
+        \Log::info('Status HTTP:', ['status' => $res->status()]);
+        \Log::info('Respuesta API:', ['body' => $res->body()]);
 
         if ($res->successful()) {
             return response()->json(['success' => true]);
         }
 
         return response()->json([
-            'success' => false, 
-            'message' => $res->json()['detail'] ?? 'Error al procesar la solicitud'
+            'success' => false,
+            'message' => $res->json()['detail'] ?? 'Error al procesar la solicitudd',
+            // TEMPORAL: exponer detalles completos para debug
+            'debug'   => [
+                'status'  => $res->status(),
+                'payload' => $payload,
+                'raw'     => $res->body(),
+            ]
         ], 422);
     }
 
