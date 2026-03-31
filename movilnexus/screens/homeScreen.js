@@ -123,7 +123,7 @@ export default function HomeScreen({ onNavegar }) {
           <Text style={styles.reservaLabel}>Reserva Activa</Text>
           <Text style={styles.reservaNombre}>{proximaReserva.folio_reservacion}</Text>
           <Text style={styles.reservaInfo}>
-            Espacio #{proximaReserva.id_espacio}
+            Espacio {proximaReserva.nombre_espacio}
             {proximaReserva.motivo ? `  ·  ${proximaReserva.motivo}` : ''}
           </Text>
           <View style={styles.reservaRow}>
