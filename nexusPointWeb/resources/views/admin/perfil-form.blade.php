@@ -47,6 +47,15 @@
                    style="background:#f5f5f5; cursor:not-allowed;">
         </div>
 
+        <div class="input-group">
+            <label>Rol</label>
+            @php
+            $rolMap = [1 => 'Alumno', 2 => 'Docente', 3 => 'Encargado', 4 => 'Administrador'];
+            @endphp
+            <input type="text" value="{{ $rolMap[$userData['id_rol'] ?? 0] ?? 'Sin rol' }}" readonly
+            style="background:#f5f5f5; cursor:not-allowed;">
+        </div>
+
         <div class="form-actions">
             <button type="button" class="btn-submit"
                 onclick="document.getElementById('confirmSaveModal').style.display='flex'"

@@ -511,38 +511,134 @@ class AdminController extends Controller
     }
 
     // ─── PERFIL ───────────────────────────────────────────────────────────────
-    public function perfil()
-    {
-        $userData = Session::get('user_data', []);
-        $id       = $userData['id_usuario'] ?? null;
-        if ($id) {
-            $res = Http::withHeaders($this->headers())->timeout(60)->get($this->apiUrl() . "/usuarios/{$id}");
-            if ($res->successful()) {
-                $userData = $res->json();
-                Session::put('user_data', $userData);
-            }
+   public function perfil()
+{
+    $userData = Session::get('user_data', []);
+
+    // Intentar obtener el id sin importar el nombre del campo
+    $id = $userData['id_usuario'] 
+       ?? $userData['id'] 
+       ?? null;
+
+    if ($id) {
+        $res = Http::withHeaders($this->headers())
+                   ->timeout(60)
+                   ->get($this->apiUrl() . "/usuarios/{$id}");
+
+        if ($res->successful()) {
+            $userData = $res->json();
+            Session::put('user_data', $userData);
         }
-        return view('admin.perfil', ['userData' => $userData]);
     }
+
+    return view('admin.perfil', ['userData' => $userData]);
+}
 
     public function perfilEdit()
-    {
-        return view('admin.perfil-form', ['userData' => Session::get('user_data', [])]);
+{
+    $userData = Session::get('user_data', []);
+
+    $id = $userData['id_usuario'] 
+       ?? $userData['id'] 
+       ?? null;
+
+    if ($id) {
+        $res = Http::withHeaders($this->headers())
+                   ->timeout(60)
+                   ->get($this->apiUrl() . "/usuarios/{$id}");
+
+        if ($res->successful()) {
+            $userData = $res->json();
+            Session::put('user_data', $userData);
+        }
     }
+
+    return view('admin.perfil-form', [
+        'userData' => $userData
+    ]);
+}
 
     public function perfilUpdate(Request $request)
-    {
-        $userData = Session::get('user_data', []);
-        $id       = $userData['id_usuario'] ?? null;
-        if (!$id) return response()->json(['success' => false, 'message' => 'Usuario no identificado'], 400);
+{
+    $userData = Session::get('user_data', []);
 
-        $res = Http::withHeaders($this->headers())->asJson()->timeout(60)->put($this->apiUrl() . "/usuarios/{$id}", $request->all());
+    $id = $userData['id_usuario'] 
+       ?? $userData['id'] 
+       ?? null;
+
+    if (!$id) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Usuario no identificado'
+        ], 400);
+    }
+
+    // ── Cambio de contraseña (viene solo el campo 'contrasenia') ──
+    if ($request->has('contrasenia')) {
+        $contrasenia = $request->input('contrasenia');
+
+        if (!$contrasenia || strlen($contrasenia) < 8) {
+            return response()->json(['success' => false, 'message' => 'La contraseña debe tener al menos 8 caracteres.'], 422);
+        }
+
+        // Para actualizar contraseña mandamos el payload completo del usuario + nueva contraseña
+        $payload = [
+            'matricula'    => $userData['matricula']    ?? '',
+            'correo'       => $userData['correo']       ?? '',
+            'nombre'       => $userData['nombre']       ?? '',
+            'apellido_p'   => $userData['apellido_p']   ?? '',
+            'apellido_m'   => $userData['apellido_m']   ?? '',
+            'cuatrimestre' => (int) ($userData['cuatrimestre'] ?? 1),
+            'id_carrera'   => (int) ($userData['id_carrera']   ?? 1),
+            'id_rol'       => (int) ($userData['id_rol']       ?? 1),
+            'contrasenia'  => $contrasenia,
+        ];
+
+        $res = Http::withHeaders($this->headers())->asJson()->timeout(60)
+                   ->put($this->apiUrl() . "/usuarios/{$id}", $payload);
+
+                   \Log::info('Cambio contraseña - payload:', $payload);
+\Log::info('Cambio contraseña - respuesta:', ['status' => $res->status(), 'body' => $res->body()]);
+
         if ($res->successful()) {
-            Session::put('user_data', $res->json());
             return response()->json(['success' => true]);
         }
-        return response()->json(['success' => false, 'message' => $res->json()['detail'] ?? 'Error'], 422);
+
+        $detail = $res->json()['detail'] ?? 'Error al actualizar la contraseña';
+        $message = is_array($detail)
+            ? collect($detail)->map(fn($e) => $e['msg'] ?? '')->implode(', ')
+            : $detail;
+
+        return response()->json(['success' => false, 'message' => $message], 422);
     }
+
+    // ── Actualización de datos personales ──
+    $payload = [
+        'matricula'    => $request->input('matricula',    $userData['matricula']    ?? ''),
+        'correo'       => $request->input('correo',       $userData['correo']       ?? ''),
+        'nombre'       => $request->input('nombre',       $userData['nombre']       ?? ''),
+        'apellido_p'   => $request->input('apellido_p',   $userData['apellido_p']   ?? ''),
+        'apellido_m'   => $request->input('apellido_m',   $userData['apellido_m']   ?? ''),
+        'cuatrimestre' => (int) $request->input('cuatrimestre', $userData['cuatrimestre'] ?? 1),
+        'id_carrera'   => (int) $request->input('id_carrera',   $userData['id_carrera']   ?? 1),
+        'id_rol'       => (int) $request->input('id_rol',       $userData['id_rol']       ?? 1),
+    ];
+
+    $res = Http::withHeaders($this->headers())->asJson()->timeout(60)
+               ->put($this->apiUrl() . "/usuarios/{$id}", $payload);
+
+    if ($res->successful()) {
+        Session::put('user_data', $res->json());
+        return response()->json(['success' => true]);
+    }
+
+    $detail  = $res->json()['detail'] ?? 'Error al guardar los cambios';
+    $message = is_array($detail)
+        ? collect($detail)->map(fn($e) => $e['msg'] ?? '')->implode(', ')
+        : $detail;
+
+    return response()->json(['success' => false, 'message' => $message], 422);
+}
 
     // ─── PING ─────────────────────────────────────────────────────────────────
     public function pingApi()

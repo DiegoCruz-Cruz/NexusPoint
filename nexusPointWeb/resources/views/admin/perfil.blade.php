@@ -25,7 +25,6 @@
         border: 5px solid rgba(255,255,255,0.15);
         box-shadow: 0 5px 15px rgba(0,0,0,0.2); z-index: 1;
     }
-    .profile-grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 25px; }
     .info-card { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); }
     .info-card h3 { margin-bottom: 25px; color: var(--color-secundario); border-bottom: 2px solid #f0f4f8; padding-bottom: 12px; font-size: 1.2rem; }
     .detail-group { margin-bottom: 20px; }
@@ -43,6 +42,61 @@
         box-shadow: 0 5px 15px rgba(62, 181, 188, 0.4); transform: translateY(-2px);
     }
 </style>
+
+@section('contenido')
+@php
+    $nombre    = ($userData['nombre'] ?? '') . ' ' . ($userData['apellido_p'] ?? '') . ' ' . ($userData['apellido_m'] ?? '');
+    $inicial   = strtoupper(substr($userData['nombre'] ?? 'A', 0, 1));
+    $correo    = $userData['correo'] ?? '—';
+    $matricula = $userData['matricula'] ?? '—';
+   $rolMap = [1 => 'Alumno', 2 => 'Docente', 3 => 'Encargado', 4 => 'Administrador'];
+    $rol       = $rolMap[$userData['id_rol'] ?? 0] ?? 'Sin rol';
+@endphp
+
+<header class="section-header">
+    <div>
+        <h1>Mi <span class="text-primario">Perfil</span></h1>
+        <p>Gestiona tu presencia en la plataforma NexusPoint.</p>
+    </div>
+</header>
+
+<section class="profile-header-card">
+    <div class="profile-avatar-big">{{ $inicial }}</div>
+    <div>
+        <h2 style="font-size:2rem; font-weight:800; margin-bottom:5px;">{{ trim($nombre) }}</h2>
+        <p style="opacity:0.9; font-size:1.1rem; font-weight:300;">{{ $correo }}</p>
+    </div>
+</section>
+
+<section class="info-card" style="max-width:900px; margin:0 auto;">
+    <h3>Información Personal</h3>
+    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:30px; margin-bottom:10px;">
+        <div class="detail-group">
+            <label>Nombre completo</label>
+            <p>{{ trim($nombre) }}</p>
+        </div>
+        <div class="detail-group">
+            <label>Matrícula</label>
+            <p>{{ $matricula }}</p>
+        </div>
+        <div class="detail-group">
+            <label>Correo electrónico</label>
+            <p>{{ $correo }}</p>
+        </div>
+        <div class="detail-group">
+            <label>Rol</label>
+            <p>{{ $rol }}</p>
+        </div>
+        <div class="detail-group">
+            <label>Cuatrimestre</label>
+            <p>{{ $userData['cuatrimestre'] ?? '—' }}</p>
+        </div>
+    </div>
+    <div style="border-top:2px solid #f0f4f8; padding-top:20px; margin-top:10px;">
+        <a href="{{ route('admin.perfil.edit') }}" class="btn-nexus">Editar mi Información</a>
+    </div>
+</section>
+
 @endsection
 
 @section('contenido')
@@ -82,19 +136,6 @@
         </div>
         <a href="{{ route('admin.perfil.edit') }}" class="btn-nexus" style="margin-top:20px;">Editar mi Información</a>
     </section>
-
-    <section class="info-card">
-        <h3>Seguridad</h3>
-        <div class="input-group" style="margin-bottom:20px;">
-            <label style="color:var(--color-secundario); font-weight:700; font-size:0.8rem; display:block; margin-bottom:8px;">NUEVA CONTRASEÑA</label>
-            <input type="password" id="newPassword" placeholder="Mínimo 8 caracteres"
-                   style="width:100%; padding:12px; border-radius:10px; border:1px solid #ddd; outline:none;">
-        </div>
-        <button class="btn-nexus" onclick="document.getElementById('confirmPassModal').style.display='flex'">
-            Actualizar Acceso
-        </button>
-    </section>
-</div>
 
 {{-- Modal cambio contraseña (multi-estado) --}}
 <div id="confirmPassModal" class="modal-overlay" style="display:none;">
