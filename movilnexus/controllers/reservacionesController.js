@@ -1,12 +1,25 @@
+// ─────────────────────────────────────────────────────
+// controllers/reservacionesController.js — Corregido
+// El método crear ya NO transforma el payload;
+// la pantalla le entrega directamente el objeto
+// ReservacionCreate con los nombres de campos correctos.
+// ─────────────────────────────────────────────────────
+
 import { reservacionesService } from '../services/reservacionesService';
 
 export const reservacionesController = {
+
+  // Carga el historial de reservaciones de un usuario
   async cargarPorUsuario(idUsuario, { setLista, setLoading, setError }) {
     setLoading(true);
     setError('');
     try {
       const lista = await reservacionesService.porUsuario(idUsuario);
-      setLista(lista);
+      // Ordenar: más recientes primero
+      const ordenada = [...lista].sort(
+        (a, b) => new Date(b.fecha_solicitud ?? 0) - new Date(a.fecha_solicitud ?? 0)
+      );
+      setLista(ordenada);
     } catch (e) {
       setError(e.message || 'Error al cargar reservaciones');
     } finally {
@@ -14,40 +27,19 @@ export const reservacionesController = {
     }
   },
 
-  async crear(idUsuario, datosReserva, { setLoading, setError, onSuccess }) {
+  // Crea una nueva reservación.
+  // El payload ya viene con los nombres de campo correctos
+  // (fecha_reserva, hora_inicio, hora_fin, id_espacio, …)
+  async crear(idUsuario, payload, { setLoading, setError, onSuccess }) {
     setLoading(true);
     setError('');
     try {
-      const nueva = await reservacionesService.crear(idUsuario, datosReserva);
+      const nueva = await reservacionesService.crear(idUsuario, payload);
       onSuccess(nueva);
     } catch (e) {
-      setError(e.message || 'Error al crear reservación');
+      setError(e.message || 'Error al crear la reservación');
     } finally {
       setLoading(false);
     }
   },
 };
-
-/*
-const [inicio, fin] = horaSel.split(' - ');
-
-// Función para asegurar el formato 00:00:00
-const formatTime = (timeStr) => {
-  const [h, m] = timeStr.split(':');
-  return `${h.padStart(2, '0')}:${m.padStart(2, '0')}:00`;
-};
-
-const datosReserva = {
-  fecha: format(fechaSel, 'yyyy-MM-dd'),
-  horaInicio: formatTime(inicio),
-  horaFin: formatTime(fin),
-  capacidad: espacioSel.capacidad,
-  idEspacio: espacioSel.id_espacio,
-  motivo: motivo
-};
-/*
-await reservacionesController.crear(usuario.id_usuario, datosReserva, {
-  setLoading,
-  setError: setErrorGeneral,
-  onSuccess: (nueva) => setReservaCreada(nueva)
-});*/
