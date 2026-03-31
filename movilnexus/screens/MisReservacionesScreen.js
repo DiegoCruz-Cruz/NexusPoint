@@ -231,7 +231,7 @@ export default function MisReservacionesScreen({ onRegresar }) {
                       <View style={styles.cardInfoItem}>
                         <Ionicons name="location-outline" size={13} color={Colors.textMuted} />
                         <Text style={styles.cardInfoTexto}>
-                          Espacio #{reserva.id_espacio}
+                          {reserva.nombre_espacio}
                         </Text>
                       </View>
                     </View>
@@ -288,7 +288,7 @@ export default function MisReservacionesScreen({ onRegresar }) {
 
                   {/* Detalles */}
                   <View style={styles.detCard}>
-                    <DetalleRow icon="location-outline"  label="Espacio"   valor={`#${reservaSel.id_espacio}`} />
+                    <DetalleRow icon="location-outline"  label="Espacio"   valor={reservaSel.nombre_espacio} />
                     <DetalleRow icon="calendar-outline"  label="Fecha"     valor={fmtFecha(reservaSel.fecha_reserva)} />
                     <DetalleRow icon="time-outline"      label="Horario"   valor={`${fmtHora(reservaSel.hora_inicio)} - ${fmtHora(reservaSel.hora_fin)}`} />
                     <DetalleRow icon="people-outline"    label="Capacidad" valor={reservaSel.capacidad_solicitada ? `${reservaSel.capacidad_solicitada} pers.` : '—'} />
