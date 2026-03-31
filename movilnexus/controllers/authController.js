@@ -5,12 +5,16 @@ export const authController = {
   async login(correo, contrasenia, { setLoading, setError, onSuccess }) {
     setLoading(true);
     setError('');
-    try {
+    try { 
+      
       await authService.login(correo, contrasenia);
-      // Obtén el perfil y guárdalo localmente
-      const token = await AsyncStorage.getItem('token');
-      const usuario = await authService.getPerfil(token);
-      await AsyncStorage.setItem('usuario', JSON.stringify(usuario));
+      
+      
+      const usuario = await authService.me();
+      
+      
+      await AsyncStorage.setItem('@nexus_usuario', JSON.stringify(usuario));
+      
       onSuccess(usuario);
     } catch (e) {
       setError(e.message || 'Correo o contraseña incorrectos');
