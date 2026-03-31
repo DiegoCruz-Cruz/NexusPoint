@@ -1,151 +1,40 @@
-import { apiFetch } from './api';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { api } from './api';
 
 export const authService = {
-  /**
-   * Login de usuario
-   * @param {string} email - Email del usuario
-   * @param {string} password - Contraseña del usuario
-   * @returns {Promise<{token: string, user: object}>}
-   */
-  async login(email, password) {
-    try {
-      const response = await apiFetch('/login', {
-        method: 'POST',
-        body: JSON.stringify({ email, password }),
-      });
-
-      if (response.token) {
-        await AsyncStorage.setItem('token', response.token);
-        await AsyncStorage.setItem('user', JSON.stringify(response.user));
-      }
-
-      return response;
-    } catch (error) {
-      throw new Error(`Error en login: ${error.message}`);
-    }
+  // POST /auth/login
+  // body: { correo: string, contrasenia: string }
+  // retorna: { access_token: string, token_type: "bearer" }
+  async login(correo, contrasenia) {
+    const data = await api.post('/auth/login', { correo, contrasenia });
+    // Guardamos el token para que buildHeaders() lo use en todas las peticiones
+    await AsyncStorage.setItem('@nexus_token', data.access_token);
+    return data; // { access_token, token_type }
   },
 
-  /**
-   * Registro de nuevo usuario
-   * @param {object} userData - Datos del usuario {name, email, password, password_confirmation}
-   * @returns {Promise<object>}
-   */
-  async register(userData) {
-    try {
-      const response = await apiFetch('/register', {
-        method: 'POST',
-        body: JSON.stringify(userData),
-      });
-
-      if (response.token) {
-        await AsyncStorage.setItem('token', response.token);
-        await AsyncStorage.setItem('user', JSON.stringify(response.user));
-      }
-
-      return response;
-    } catch (error) {
-      throw new Error(`Error en registro: ${error.message}`);
-    }
+  // POST /auth/registro
+  // body: UsuarioCreate — ver schemas.py
+  //   matricula?  nombre  apellido_p  apellido_m?  correo
+  //   contrasenia  cuatrimestre?  id_rol  id_carrera?
+  // retorna: UsuarioOut
+  async registro(payload) {
+    return api.post('/auth/registro', payload);
   },
 
-  /**
-   * Cerrar sesión
-   * @returns {Promise<void>}
-   */
+  // GET /auth/me?token=<jwt>
+  // retorna: UsuarioOut
+  //   id_usuario  matricula?  nombre  apellido_p  apellido_m?
+  //   correo  cuatrimestre?  id_rol  id_carrera?
+  async me() {
+    const token = await AsyncStorage.getItem('@nexus_token');
+    if (!token) throw new Error('No hay sesión activa');
+    // El router recibe el token como query param, no como header
+    return api.get(`/auth/me?token=${token}`);
+  },
+
+  // Cierra sesión: borra token y usuario del storage
   async logout() {
-    try {
-      await apiFetch('/logout', { method: 'POST' });
-      await AsyncStorage.removeItem('token');
-      await AsyncStorage.removeItem('user');
-    } catch (error) {
-      console.error('Error en logout:', error);
-      // Limpiar datos localmente incluso si falla la petición
-      await AsyncStorage.removeItem('token');
-      await AsyncStorage.removeItem('user');
-    }
-  },
-
-  /**
-   * Solicitar recuperación de contraseña
-   * @param {string} email - Email del usuario
-   * @returns {Promise<object>}
-   */
-  async requestPasswordReset(email) {
-    try {
-      const response = await apiFetch('/password-reset-request', {
-        method: 'POST',
-        body: JSON.stringify({ email }),
-      });
-      return response;
-    } catch (error) {
-      throw new Error(`Error al solicitar reset: ${error.message}`);
-    }
-  },
-
-  /**
-   * Completar recuperación de contraseña
-   * @param {object} data - {email, token, password, password_confirmation}
-   * @returns {Promise<object>}
-   */
-  async resetPassword(data) {
-    try {
-      const response = await apiFetch('/password-reset', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
-      return response;
-    } catch (error) {
-      throw new Error(`Error al resetear contraseña: ${error.message}`);
-    }
-  },
-
-  /**
-   * Obtener usuario actual
-   * @returns {Promise<object>}
-   */
-  async getCurrentUser() {
-    try {
-      const userJson = await AsyncStorage.getItem('user');
-      return userJson ? JSON.parse(userJson) : null;
-    } catch (error) {
-      console.error('Error obteniendo usuario actual:', error);
-      return null;
-    }
-  },
-
-  /**
-   * Verificar si hay sesión activa
-   * @returns {Promise<boolean>}
-   */
-  async isAuthenticated() {
-    try {
-      const token = await AsyncStorage.getItem('token');
-      return !!token;
-    } catch (error) {
-      return false;
-    }
-  },
-
-  /**
-   * Actualizar perfil de usuario
-   * @param {object} userData - Datos a actualizar
-   * @returns {Promise<object>}
-   */
-  async updateProfile(userData) {
-    try {
-      const response = await apiFetch('/profile/update', {
-        method: 'PUT',
-        body: JSON.stringify(userData),
-      });
-
-      if (response.user) {
-        await AsyncStorage.setItem('user', JSON.stringify(response.user));
-      }
-
-      return response;
-    } catch (error) {
-      throw new Error(`Error actualizando perfil: ${error.message}`);
-    }
+    await AsyncStorage.multiRemove(['@nexus_token', '@nexus_usuario']);
   },
 };
