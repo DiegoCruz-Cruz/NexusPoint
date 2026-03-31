@@ -1,11 +1,3 @@
-// ─────────────────────────────────────────────────────
-// services/authService.js
-// Mapea exactamente a app/routers/auth.py
-//
-//  POST /auth/login    → LoginRequest  → Token
-//  POST /auth/registro → UsuarioCreate → UsuarioOut
-//  GET  /auth/me?token=... → UsuarioOut
-// ─────────────────────────────────────────────────────
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from './api';
